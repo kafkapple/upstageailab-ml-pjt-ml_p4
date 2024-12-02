@@ -53,7 +53,7 @@ models:
     pretrained_model: "beomi/KcELECTRA-base"
     model_dir: "models"
     training:
-      epochs: 3
+      epochs: 20
       num_labels: 2
       batch_size: 32
       lr: 2.0e-5
