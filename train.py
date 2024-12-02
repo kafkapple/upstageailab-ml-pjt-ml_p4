@@ -168,8 +168,8 @@ def train(config):
             print("\nSaving model artifacts...")
             
             try:
-                # 모델 저장 경로 구성
-                model_path = Path("mlruns") / run.info.experiment_id / run.info.run_id / "artifacts/model"
+                # 모델 저장 경로 구성 (절대 경로 사용)
+                model_path = config.mlflow.artifact_location.resolve().absolute() / run.info.experiment_id / run.info.run_id / "artifacts/model"
                 model_path.mkdir(parents=True, exist_ok=True)
                 print(f"Debug: Saving model to path: {model_path}")
                 print(f"Debug: Run ID: {run.info.run_id}")

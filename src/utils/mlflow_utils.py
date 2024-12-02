@@ -97,9 +97,13 @@ def initialize_mlflow(config: Config) -> str:
     # MLflow 실험 설정
     experiment = mlflow.get_experiment_by_name(config.mlflow.experiment_name)
     if experiment is None:
+        # artifact_location을 절대 경로로 변환
+        absolute_artifact_location = str(config.mlflow.artifact_location.resolve().absolute())
+        print(f"Debug: Creating experiment with artifact location: {absolute_artifact_location}")
+        
         experiment_id = mlflow.create_experiment(
             name=config.mlflow.experiment_name,
-            artifact_location=str(config.mlflow.artifact_location)
+            artifact_location=absolute_artifact_location
         )
     else:
         experiment_id = experiment.experiment_id
@@ -194,7 +198,7 @@ class MLflowModelManager:
                 if model_info.get('version') == version:
                     model_info['stage'] = "Production"
                     
-            # 변경된 ��보 저장
+            # 변경된 보 저장
             with open(self.model_info_path, 'w', encoding='utf-8') as f:
                 json.dump(model_infos, f, indent=2, ensure_ascii=False)
             
