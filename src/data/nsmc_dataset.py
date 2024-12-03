@@ -9,8 +9,46 @@ from typing import Dict, Optional, Any, Tuple
 from transformers import PreTrainedTokenizerBase
 import torch
 import requests
-from src.config import Config
-from .text_utils import clean_text
+
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
+
+from config import Config
+
+import re
+import emoji
+
+def clean_text(text: str) -> str:
+    """Clean text by removing special characters and emojis"""
+    # 이모지 제거
+    text = emoji.replace_emoji(text, '')
+    
+    # HTML 태그 제거
+    text = re.sub(r'<[^>]+>', '', text)
+    
+    # 특수 문자 및 숫자 제거 (한글, 영문, 공백만 남김)
+    text = re.sub(r'[^가-힣a-zA-Z\s]', '', text)
+    
+    # 연속된 공백 제거
+    text = re.sub(r'\s+', ' ', text)
+    
+    # 앞뒤 공백 제거
+    text = text.strip()
+    
+    return text
+
+def preprocess_text(text: str) -> str:
+    """Preprocess text for NSMC dataset"""
+    # 기본 클리닝
+    text = clean_text(text)
+    
+    # 빈 문자열 처리
+    if not text:
+        text = "빈 텍스트"
+        
+    return text
+
+
 
 def download_nsmc(config):
     """Download NSMC dataset"""
@@ -74,7 +112,7 @@ class NSMCDataset(Dataset):
         return {
             'input_ids': encoding['input_ids'].squeeze(0),
             'attention_mask': encoding['attention_mask'].squeeze(0),
-            'labels': torch.tensor(label)
+            'label': torch.tensor(label)
         }
 
 class NSMCDataModule(LightningDataModule):
@@ -119,6 +157,7 @@ class NSMCDataModule(LightningDataModule):
     
     def setup(self, stage: Optional[str] = None):
         """데이터셋 설정"""
+        print('\n=== DataModule setup ===')
         if stage == 'fit' or stage is None:
             # 학습 데이터셋 로드
             train_data = load_dataset(str(self.train_path), self.config.data['column_mapping'])
@@ -158,12 +197,12 @@ def log_data_info(data_module: NSMCDataModule):
     print("\n=== Dataset Information ===")
     
     # 학습 데이터 레이블 분포
-    train_labels = [sample['labels'].item() for sample in data_module.train_dataset]
+    train_labels = [sample['label'].item() for sample in data_module.train_dataset]
     print("\nTrain Label Distribution:")
     print(pd.Series(train_labels).value_counts())
     
     # 검증 데이터 레이블 분포
-    val_labels = [sample['labels'].item() for sample in data_module.val_dataset]
+    val_labels = [sample['label'].item() for sample in data_module.val_dataset]
     print("\nValidation Label Distribution:")
     print(pd.Series(val_labels).value_counts())
 

@@ -10,7 +10,10 @@ import mlflow
 import shutil
 from mlflow.tracking import MlflowClient
 from mlflow.entities.model_registry import ModelVersion
-from src.config import Config
+
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
+from config import Config
 
 class ModelStage(Enum):
     """모델 스테이지 정의"""
@@ -19,34 +22,34 @@ class ModelStage(Enum):
     PRODUCTION = "Production"
     ARCHIVED = "Archived"
 
-def cleanup_old_runs(config, days_to_keep=7):
-    """오래된 MLflow 실행 정리"""
-    try:
-        client = MlflowClient()
-        experiment = mlflow.get_experiment_by_name(config.mlflow.experiment_name)
+# def cleanup_old_runs(config, days_to_keep=7):
+#     """오래된 MLflow 실행 정리"""
+#     try:
+#         client = MlflowClient()
+#         experiment = mlflow.get_experiment_by_name(config.mlflow.experiment_name)
         
-        if experiment is None:
-            print(f"No experiment found with name: {config.mlflow.experiment_name}")
-            return
+#         if experiment is None:
+#             print(f"No experiment found with name: {config.mlflow.experiment_name}")
+#             return
             
-        # 실험의 모든 실행 가져오기
-        runs = client.search_runs(
-            experiment_ids=[experiment.experiment_id],
-            order_by=["start_time DESC"]
-        )
+#         # 실험의 모든 실행 가져오기
+#         runs = client.search_runs(
+#             experiment_ids=[experiment.experiment_id],
+#             order_by=["start_time DESC"]
+#         )
         
-        # 기준 시간 계산
-        cutoff_date = datetime.now() - timedelta(days=days_to_keep)
+#         # 기준 시간 계산
+#         cutoff_date = datetime.now() - timedelta(days=days_to_keep)
         
-        # 오래된 실행 삭제
-        for run in runs:
-            run_date = datetime.fromtimestamp(run.info.start_time / 1000.0)
-            if run_date < cutoff_date:
-                client.delete_run(run.info.run_id)
-                print(f"Deleted run: {run.info.run_id} from {run_date}")
+#         # 오래된 실행 삭제
+#         for run in runs:
+#             run_date = datetime.fromtimestamp(run.info.start_time / 1000.0)
+#             if run_date < cutoff_date:
+#                 client.delete_run(run.info.run_id)
+#                 print(f"Deleted run: {run.info.run_id} from {run_date}")
                 
-    except Exception as e:
-        print(f"Error cleaning up old runs: {str(e)}")
+#     except Exception as e:
+#         print(f"Error cleaning up old runs: {str(e)}")
 
 def cleanup_artifacts(config, metrics: Dict[str, float], run_id: str):
     """MLflow 아티팩트 정리
@@ -132,15 +135,36 @@ class MLflowModelManager:
         print(f"Debug: Model info path: {self.model_info_path}")
         print(f"Debug: Tracking URI: {config.mlflow.tracking_uri}")
         
-    def register_model(self, model_name: str, run_id: str, model_uri: str = 'model') -> ModelVersion:
-        """MLflow에 모델을 등록하고 버전 정보를 반환"""
-        # MLflow에 모델 등록
+    def register_model(self, model_name: str, run_id: str, stage: str = 'Archived', model_uri: str = 'model', metrics: Dict[str, float] = None) -> ModelVersion:
+        """MLflow에 모델을 등록하고 버전 정보를 반환
+        
+        Args:
+            model_name: 모델 이름
+            run_id: MLflow run ID
+            stage: 모델 스테이지 (기본값: 'Archived')
+            model_uri: 모델 URI (기본값: 'model')
+            metrics: 모델 평가 지표 (기본값: None)
+        """
         model_uri = f"runs:/{run_id}/{model_uri}"
         try:
             model_version = mlflow.register_model(model_uri, model_name)
             print(f"Registered model '{model_name}' version {model_version.version}")
             
-            # 모델 버전 정보 반환
+            # 현재 실행 정보 가져오기
+            run = mlflow.get_run(run_id)
+            run_name = run.data.tags.get("mlflow.runName", model_name)
+            
+            # 모델 정보 저장
+            if metrics is None:
+                metrics = {}  # 빈 딕셔너리로 초기화
+            
+            self.save_model_info(
+                run_id=run_id,
+                metrics=metrics,
+                run_name=run_name,
+                stage=stage
+            )
+            
             return model_version
             
         except Exception as e:
@@ -253,39 +277,40 @@ class MLflowModelManager:
             print(f"Error getting latest versions: {str(e)}")
             return []
     
-    def save_model_info(self, run_id: str, metrics: Dict[str, float], params: Dict[str, Any], version: str) -> None:
-        """모델 정보를 JSON 파일로 저장"""
+    def save_model_info(self, run_id: str, metrics: dict, run_name: str, stage: str = "Archived"):
+        """모델 정보를 model_registry.json에 저장"""
         try:
-            # Path 객체를 문자열로 변환
-            serializable_params = {k: str(v) if isinstance(v, Path) else v for k, v in params.items()}
+            # 기존 정보 로드
+            if os.path.exists(self.model_info_path):
+                with open(self.model_info_path, 'r', encoding='utf-8') as f:
+                    model_infos = json.load(f)
+            else:
+                model_infos = []
             
-            # experiment_id 가져오기
-            run = mlflow.get_run(run_id)
-            experiment_id = run.info.experiment_id
-            experiment_name = mlflow.get_experiment(experiment_id).name
+            # 동일한 run_id가 있는지 확인
+            existing_info = next((info for info in model_infos if info['run_id'] == run_id), None)
             
+            # 새로운 모델 정보
             model_info = {
-                "experiment_name": experiment_name,
-                "experiment_id": experiment_id,
                 "run_id": run_id,
-                "run_name": f"{self.config.project['model_name']}_{self.config.project['dataset_name']}",
                 "metrics": metrics,
-                "params": serializable_params,
-                "stage": "Staging",
-                "version": version,
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                "run_name": run_name,
+                "stage": stage,
+                "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S")
             }
             
-            # 기존 정보 로드 및 업데이트
-            model_infos = self.load_model_info()
-            model_infos.append(model_info)
+            # 기존 정보 업데이트 또는 새로 추가
+            if existing_info:
+                existing_info.update(model_info)
+            else:
+                model_infos.append(model_info)
             
-            # 파일 저장
-            self.model_info_path.parent.mkdir(parents=True, exist_ok=True)
+            # 정보 저장
+            os.makedirs(os.path.dirname(self.model_info_path), exist_ok=True)
             with open(self.model_info_path, 'w', encoding='utf-8') as f:
                 json.dump(model_infos, f, indent=2, ensure_ascii=False)
-                
-            print(f"Model info saved successfully to {self.model_info_path}")
+            
+            print(f"Saved model info for run {run_id}")
             
         except Exception as e:
             print(f"Error saving model info: {str(e)}")

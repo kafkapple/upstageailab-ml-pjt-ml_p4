@@ -223,6 +223,11 @@ def display_model_management(model_manager, model_name: str):
                 st.error(f"스테이지 변경 중 오류가 발생했습니다: {str(e)}")
 
 def main():
+    print(f"\n==== Sync Configs ====\n")
+    import src.utils.config_sync as config_sync
+
+    config_sync.ConfigSynchronizer().sync_configs()
+
     st.set_page_config(
         page_title="Sentiment Analysis Demo",
         page_icon="🤖",

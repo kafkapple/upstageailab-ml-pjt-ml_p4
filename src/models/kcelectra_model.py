@@ -63,12 +63,12 @@ class KcELECTRA(pl.LightningModule):
                 for param in self.model.electra.encoder.layer[i].parameters():
                     param.requires_grad = True
     
-    def forward(self, input_ids, attention_mask=None, labels=None):
+    def forward(self, input_ids, attention_mask=None, label=None):
         """Forward pass"""
         outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
-            labels=labels
+            labels=label
         )
         return outputs
     
@@ -79,15 +79,15 @@ class KcELECTRA(pl.LightningModule):
         
         # 메트릭스 계산
         predictions = torch.argmax(outputs.logits, dim=1)
-        correct = (predictions == batch['labels']).sum()
+        correct = (predictions == batch['label']).sum()
         total = len(predictions)
         accuracy = correct.float() / total
         
         # F1, Precision, Recall 계산
-        tp = ((predictions == 1) & (batch['labels'] == 1)).sum().float()
-        fp = ((predictions == 1) & (batch['labels'] == 0)).sum().float()
-        fn = ((predictions == 0) & (batch['labels'] == 1)).sum().float()
-        tn = ((predictions == 0) & (batch['labels'] == 0)).sum().float()
+        tp = ((predictions == 1) & (batch['label'] == 1)).sum().float()
+        fp = ((predictions == 1) & (batch['label'] == 0)).sum().float()
+        fn = ((predictions == 0) & (batch['label'] == 1)).sum().float()
+        tn = ((predictions == 0) & (batch['label'] == 0)).sum().float()
         
         precision = tp / (tp + fp + 1e-7)
         recall = tp / (tp + fn + 1e-7)
@@ -109,15 +109,15 @@ class KcELECTRA(pl.LightningModule):
         
         # 메트릭스 계산
         predictions = torch.argmax(outputs.logits, dim=1)
-        correct = (predictions == batch['labels']).sum()
+        correct = (predictions == batch['label']).sum()
         total = len(predictions)
         accuracy = correct.float() / total
         
         # F1, Precision, Recall 계산
-        tp = ((predictions == 1) & (batch['labels'] == 1)).sum().float()
-        fp = ((predictions == 1) & (batch['labels'] == 0)).sum().float()
-        fn = ((predictions == 0) & (batch['labels'] == 1)).sum().float()
-        tn = ((predictions == 0) & (batch['labels'] == 0)).sum().float()
+        tp = ((predictions == 1) & (batch['label'] == 1)).sum().float()
+        fp = ((predictions == 1) & (batch['label'] == 0)).sum().float()
+        fn = ((predictions == 0) & (batch['label'] == 1)).sum().float()
+        tn = ((predictions == 0) & (batch['label'] == 0)).sum().float()
         
         precision = tp / (tp + fp + 1e-7)
         recall = tp / (tp + fn + 1e-7)
