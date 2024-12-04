@@ -71,16 +71,18 @@ def update_statistics(sentiment: str):
     else:
         st.session_state.negative_count += 1
 
-def add_to_history(text: str, result: dict, model_id: int):
+def add_to_history(text: str, result: dict, model_info: dict):
     """Add prediction to history"""
     st.session_state.history.append({
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "text": text,
         "sentiment": result['label'],
         "confidence": result['confidence'],
-        "negative_prob": result['probabilities'][0],
-        "positive_prob": result['probabilities'][1],
-        "model_id": model_id
+        "negative_prob": result['probs']['부정'],
+        "positive_prob": result['probs']['긍정'],
+        "model_name": model_info['run_name'],
+        "model_stage": model_info['stage'],
+        "model_version": model_info['version']
     })
 
 def display_model_info(model_info):
@@ -203,20 +205,26 @@ def display_model_management(model_manager, model_name: str):
         
         if st.button("상태 변경", type="primary"):
             try:
+                selected_model = df[df['model_id'] == selected_model_id].iloc[0]
+                
+                # 버전과 run_id가 문자열인지 확인
+                version = str(selected_model['version'])
+                run_id = str(selected_model['run_id'])
+                
                 if new_stage == 'champion':
                     model_manager.promote_to_production(
                         model_name,
-                        selected_model['version']
+                        version
                     )
                 elif new_stage == 'archived':
                     model_manager.archive_model(
                         model_name,
-                        selected_model['version']
+                        version
                     )
                 elif new_stage == 'candidate':
                     model_manager.promote_to_staging(
                         model_name,
-                        selected_model['run_id']
+                        run_id
                     )
                 
                 st.success(f"모델 상태가 {stage_map[new_stage]}(으)로 변경되었습니다.")
@@ -225,169 +233,247 @@ def display_model_management(model_manager, model_name: str):
                 
             except Exception as e:
                 st.error(f"상태 변경 중 오류가 발생했습니다: {str(e)}")
+                import traceback
+                traceback.print_exc()
 
 def main():
+    # 페이지 설정
     st.set_page_config(
-        page_title="Sentiment Analysis Demo",
+        page_title="감성 분석 서비스",
         page_icon="🤖",
         layout="wide"
     )
     
-    initialize_session_state()
+    # CSS 스타일 적용
+    st.markdown("""
+        <style>
+        .sidebar .sidebar-content {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            font-size: 14px;
+        }
+        .stMarkdown {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            font-size: 14px;
+        }
+        .sidebar .sidebar-content .stMetric {
+            font-size: 13px;
+        }
+        h1 {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            font-size: 28px;
+            font-weight: 500;
+        }
+        h2 {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            font-size: 20px;
+            font-weight: 500;
+        }
+        </style>
+    """, unsafe_allow_html=True)
     
-    # Initialize config and model manager
+    st.title("감성 분석 서비스")
+    
+    # Config 및 모델 관리자 초기화
     config = Config()
     model_manager = MLflowModelManager(config)
     
-    # Create tabs
-    tab_predict, tab_manage = st.tabs(["감성 분석", "모델 관리"])
+    # 모델 정보 가져오기
+    model_infos = model_manager.load_model_info()
+    
+    if not model_infos:
+        st.error("등록된 모델이 없습니다. 먼저 모델을 학습해주세요.")
+        return
+    
+    # 모델 선택 (Production 모델이 없어도 동작)
+    selected_model_info = model_manager.load_production_model_info()
+    if not selected_model_info:
+        st.warning("운영 중인 모델이 없습니다. 최신 모델을 사용합니다.")
+        selected_model_info = model_infos[-1]  # 최신 모델 사용
+    
+    # 탭 생성
+    tab_predict, tab_history, tab_manage = st.tabs(["예측", "히스토리", "모델 관리"])
     
     with tab_predict:
-        st.title("한국어 감성 분석 데모")
-        st.write("텍스트를 입력하면 긍정/부정을 판단합니다.")
+        # 모델 정보 표시
+        with st.sidebar:
+            st.markdown("### 현재 모델")
+            st.markdown(f"**모델명**: {selected_model_info['run_name']}")
+            st.markdown(f"**상태**: {selected_model_info['stage']}")
+            st.markdown(f"**등록일**: {selected_model_info['timestamp']}")
+            
+            if 'metrics' in selected_model_info:
+                st.markdown("### 성능 지표")
+                metrics = selected_model_info['metrics']
+                
+                # 메트릭 값 포맷팅 및 세로로 표시
+                for metric, value in metrics.items():
+                    st.markdown(
+                        f"<div style='font-size: 13px;'>{metric}: "
+                        f"<span style='font-family: monospace;'>{value:.2f}</span></div>",
+                        unsafe_allow_html=True
+                    )
         
-        # Get production models
-        production_models = model_manager.get_production_models()
-        
-        if not production_models:
-            st.error("No production models found. Please train and promote a model first.")
-            st.stop()
-        
-        # Model selection
-        model_options = {
-            f"{model['run_name']} ({model['timestamp']})": model 
-            for model in production_models
-        }
-        
-        selected_model_name = st.sidebar.selectbox(
-            "Select Production Model",
-            options=list(model_options.keys())
-        )
-        
-        selected_model_info = model_options[selected_model_name]
-        display_model_info(selected_model_info)
-        
-        # Get model_id from selected model
-        model_id = production_models.index(selected_model_info) + 1
-        
-        # Load predictor
-        predictor = load_predictor(selected_model_info)
-        if predictor is None:
-            st.error("Failed to load the model predictor.")
-            st.stop()
-        
-        # Display statistics
-        display_statistics()
-        
-        # Main content area
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            # Text input
+        # 예측 UI
+        try:
+            predictor = SentimentPredictor(
+                model_name=config.project['model_name'],
+                alias=selected_model_info['stage']
+            )
+            
+            # 예측 입력 영역
             text = st.text_area(
-                "분석할 텍스트를 입력하세요:",
+                "분석할 텍스트를 입력하세요",
                 height=100,
                 help="여러 줄의 텍스트를 입력할 수 있습니다."
             )
             
-            if st.button("분석하기", type="primary"):
-                if not text:
-                    st.warning("텍스트를 입력해주세요.")
-                    return
+            if text and st.button("분석", type="primary"):
+                result = predictor.predict(text, return_probs=True)
                 
-                with st.spinner("분석 중..."):
-                    result = predict_sentiment(text, predictor)
-                    if result:
-                        # Update statistics and history
-                        update_statistics(result['label'])
-                        add_to_history(text, result, model_id)
-                        
-                        # Display results
-                        st.subheader("분석 결과")
-                        col_result1, col_result2 = st.columns(2)
-                        
-                        with col_result1:
-                            st.metric("감성", result['label'])
-                            st.metric("확신도", f"{result['confidence']:.1%}")
-                        
-                        with col_result2:
-                            fig = go.Figure(go.Bar(
-                                x=['부정', '긍정'],
-                                y=result['probabilities'],
-                                marker_color=['#ff9999', '#99ff99']
-                            ))
-                            fig.update_layout(
-                                title="감성 분석 확률 분포",
-                                yaxis_title="확률",
-                                showlegend=False
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
+                # 결과 표시
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.metric("감성", result['label'])
+                    st.metric("확신도", f"{result['confidence']:.1%}")
+                
+                with col2:
+                    # 확률 분포 그래프
+                    fig = go.Figure(go.Bar(
+                        x=['부정', '긍정'],
+                        y=[result['probs']['부정'], result['probs']['긍정']],
+                        marker_color=['#ff9999', '#99ff99']
+                    ))
+                    fig.update_layout(
+                        title="감성 분석 확률 분포",
+                        yaxis_title="확률",
+                        showlegend=False
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                # 히스토리에 추가
+                add_to_history(text, {
+                    'text': text,
+                    'label': result['label'],
+                    'confidence': result['confidence'],
+                    'probabilities': [
+                        result['probs']['부정'],
+                        result['probs']['긍정']
+                    ]
+                }, selected_model_info)
+                update_statistics(result['label'])
+                
+        except Exception as e:
+            st.error(f"모델 로딩 중 오류가 발생했습니다: {str(e)}")
+            st.info("모델 관리 탭에서 모델 상태를 확인해주세요.")
+    
+    with tab_history:
+        st.subheader("예측 히스토리")
         
-        with col2:
-            st.subheader("분석 상세 정보")
-            with st.expander("자세히 보기", expanded=True):
-                st.write("입력 텍스트 길이:", len(text) if text else 0)
-                st.write("토큰 수:", len(predictor.tokenizer.encode(text)) if text else 0)
-                if text:
-                    st.json({
-                        "prediction": {
-                            "label": result['label'] if 'result' in locals() else None,
-                            "confidence": f"{result['confidence']:.4f}" if 'result' in locals() else None,
-                            "probabilities": {
-                                "negative": f"{result['probabilities'][0]:.4f}" if 'result' in locals() else None,
-                                "positive": f"{result['probabilities'][1]:.4f}" if 'result' in locals() else None
-                            }
-                        }
-                    })
-        
-        # History section
-        st.markdown("---")
-        st.subheader("분석 히스토리")
-        
-        if st.session_state.history:
+        if not st.session_state.history:
+            st.info("아직 예측 기록이 없습니다.")
+        else:
+            # 데이터프레임 생성
             df = pd.DataFrame(st.session_state.history)
-            df = df.sort_values('timestamp', ascending=False)
             
-            # Add styling
-            def color_sentiment(val):
-                color = '#99ff99' if val == '긍정' else '#ff9999'
-                return f'background-color: {color}; color: black'
+            # 컬럼 이름 매핑
+            column_config = {
+                "timestamp": "시간",
+                "text": "입력 텍스트",
+                "sentiment": "예측 결과",
+                "confidence": "확신도",
+                "model_name": "모델",
+                "model_stage": "모델 상태",
+                "model_version": "모델 버전"
+            }
             
-            styled_df = df.style.applymap(
-                color_sentiment, 
-                subset=['sentiment']
-            ).format({
-                'confidence': '{:.1%}',
-                'negative_prob': '{:.4f}',
-                'positive_prob': '{:.4f}'
-            })
+            # 확신도를 퍼센트로 표시
+            df['confidence'] = df['confidence'].apply(lambda x: f"{x:.1%}")
             
+            # 긍정/부정 확률 컬럼 추가
+            df['확률 분포'] = df.apply(
+                lambda row: f"긍정: {row['positive_prob']:.2f}, 부정: {row['negative_prob']:.2f}",
+                axis=1
+            )
+            
+            # 표시할 컬럼 선택
+            display_columns = [
+                'timestamp', 'text', 'sentiment', 'confidence',
+                '확률 분포', 'model_name', 'model_stage', 'model_version'
+            ]
+            
+            # 스타일링 함수
+            def style_sentiment(val):
+                if val == '긍정':
+                    return 'background-color: #99ff99'
+                return 'background-color: #ff9999'
+            
+            def style_confidence(val):
+                conf = float(val.strip('%')) / 100
+                if conf >= 0.9:
+                    return 'color: #006400'  # 진한 녹색
+                elif conf >= 0.7:
+                    return 'color: #008000'  # 녹색
+                else:
+                    return 'color: #696969'  # 회색
+            
+            # 데이터프레임 스타일링 적용
+            styled_df = df[display_columns].style\
+                .applymap(style_sentiment, subset=['sentiment'])\
+                .applymap(style_confidence, subset=['confidence'])
+            
+            # 데이터프레임 표시
             st.dataframe(
                 styled_df,
-                column_config={
-                    "timestamp": "시간",
-                    "text": "텍스트",
-                    "sentiment": "감성",
-                    "confidence": "확신도",
-                    "negative_prob": "부정 확률",
-                    "positive_prob": "긍정 확률",
-                    "model_id": "모델 ID"
-                },
+                column_config=column_config,
                 hide_index=True,
                 use_container_width=True
             )
             
-            if st.button("히스토리 초기화"):
-                st.session_state.history = []
-                st.session_state.total_predictions = 0
-                st.session_state.positive_count = 0
-                st.session_state.negative_count = 0
-                st.rerun()
-        else:
-            st.info("아직 분석 기록이 없습니다.")
+            # 통계 표시
+            col1, col2, col3 = st.columns(3)
+            
+            total = len(df)
+            positive = len(df[df['sentiment'] == '긍정'])
+            negative = len(df[df['sentiment'] == '부정'])
+            
+            col1.metric("전체 예측", total)
+            col2.metric("긍정", f"{(positive/total)*100:.1f}%")
+            col3.metric("부정", f"{(negative/total)*100:.1f}%")
+            
+            # 시각화
+            st.subheader("시계열 분석")
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            
+            # 시간별 감성 분포
+            fig = go.Figure()
+            
+            for sentiment in ['긍정', '부정']:
+                mask = df['sentiment'] == sentiment
+                fig.add_trace(go.Scatter(
+                    x=df[mask]['timestamp'],
+                    y=df[mask]['confidence'].apply(lambda x: float(x.strip('%'))),
+                    name=sentiment,
+                    mode='markers+lines',
+                    marker=dict(
+                        size=8,
+                        color='#99ff99' if sentiment == '긍정' else '#ff9999'
+                    )
+                ))
+            
+            fig.update_layout(
+                title="시간별 예측 확신도 추이",
+                xaxis_title="시간",
+                yaxis_title="확신도 (%)",
+                hovermode='x unified'
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
     
     with tab_manage:
+        # ... (모델 관리 탭 코드)
         display_model_management(model_manager, config.project['model_name'])
 
 if __name__ == "__main__":
+    initialize_session_state()
     main() 
