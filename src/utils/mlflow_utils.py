@@ -198,14 +198,27 @@ class MLflowModelManager:
             print(f"Debug: Model name: {model_name}")
             print(f"Debug: Run ID: {run_id}")
             
-            # 1. 모델 등록
-            full_uri = f"runs:/{run_id}/{model_uri}"
-            model_version = mlflow.register_model(full_uri, model_name)
-            print(f"Debug: Model registered as version: {model_version.version}")
+            # 모든 버전 정보 출력
+            versions = self.client.search_model_versions(f"name='{model_name}'")
+            print("\nDebug: All model versions:")
+            for v in versions:
+                print(f"Version: {v.version}, Run ID: {v.run_id}")
+            
+            # 해당 run_id의 버전 찾기
+            model_version = next(
+                (v for v in versions if v.run_id == run_id), 
+                None
+            )
+            
+            if not model_version:
+                print(f"\nDebug: No version found for run_id {run_id}")
+                print("Debug: Available run IDs:", [v.run_id for v in versions])
+                raise ValueError(f"No model version found for run_id: {run_id}")
+            
+            print(f"Debug: Found model version: {model_version.version}")
             
             # 2. 기존 alias 제거
             try:
-                # 현재 candidate alias 제거
                 current_candidate = self.client.get_model_version_by_alias(
                     name=model_name,
                     alias=ModelAlias.STAGING.value
@@ -246,43 +259,27 @@ class MLflowModelManager:
             
             # 1. 기존 alias 제거
             try:
-                # 현재 champion alias 제거
                 current_champion = self.client.get_model_version_by_alias(
                     name=model_name,
                     alias=ModelAlias.PRODUCTION.value
                 )
                 if current_champion:
-                    print(f"Debug: Removing champion alias from version: {current_champion.version}")
                     self.client.delete_registered_model_alias(
                         name=model_name,
                         alias=ModelAlias.PRODUCTION.value
                     )
-                
-                # 승격될 모델의 candidate alias 제거
-                if self.client.get_model_version_by_alias(
-                    name=model_name,
-                    alias=ModelAlias.STAGING.value
-                ).version == version:
-                    print(f"Debug: Removing candidate alias from version: {version}")
-                    self.client.delete_registered_model_alias(
-                        name=model_name,
-                        alias=ModelAlias.STAGING.value
-                    )
             except Exception as e:
-                print(f"Debug: Error removing aliases: {str(e)}")
+                print(f"Debug: No current champion found: {str(e)}")
             
             # 2. 새로운 champion 설정
-            print(f"Debug: Setting new champion version: {version}")
             self.client.set_registered_model_alias(
                 name=model_name,
                 alias=ModelAlias.PRODUCTION.value,
                 version=version
             )
             
-            # 3. model_registry.json 업데이트
+            # 3. 동기화
             self.sync_model_info()
-            
-            print(f"Debug: Model {model_name} version {version} successfully promoted to Champion")
             
         except Exception as e:
             print(f"Error promoting model to champion: {str(e)}")
@@ -362,16 +359,28 @@ class MLflowModelManager:
             # 모델 설정 가져오기
             model_config = self.config.models[self.config.project['model_name']]
             
+            # 중복 제거된 파라미터 구성
+            model_params = {
+                'model_name': self.config.project['model_name'],
+                'dataset_name': self.config.project['dataset_name'],
+                'pretrained_model': model_config['pretrained_model'],
+                'training': model_config['training']  # 학습 관련 파라미터는 training 하위로 이동
+            }
+            
+            # 추가 파라미터가 있다면 training 하위로 이동
+            if params:
+                model_params['training'].update({
+                    k: v for k, v in params.items() 
+                    if k not in ['model_name', 'dataset_name', 'pretrained_model']
+                })
+            
             model_info = {
                 "experiment_name": mlflow.get_experiment(mlflow.get_run(run_id).info.experiment_id).name,
                 "experiment_id": mlflow.get_run(run_id).info.experiment_id,
                 "run_id": run_id,
                 "run_name": f"{self.config.project['model_name']}_{self.config.project['dataset_name']}",
                 "metrics": metrics,
-                "params": {
-                    **model_config,  # 전체 모델 설정 포함
-                    **{k: str(v) if isinstance(v, Path) else v for k, v in params.items()}
-                },
+                "params": model_params,  # 중복 제거된 파라미터
                 "stage": current_alias,
                 "version": version,
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")

@@ -103,50 +103,36 @@ class ModelTrainer:
             # 평가
             metrics = self._evaluate_model(model, tokenizer, data_module)
             
-            # 모델 저장 및 로깅 (항상 수행)
+            # 모델 저장 및 로깅
             self._save_model(run, model, metrics, data_module, tokenizer)
             
             # 모델 레지스트리에 등록 (조건부)
             if metrics['val_f1'] > self.config.mlflow.model_registry_metric_threshold:
                 model_manager = MLflowModelManager(self.config)
                 
-                # 모델이 저장된 경로 확인
-                artifact_uri = mlflow.get_run(run.info.run_id).info.artifact_uri
-                model_uri = os.path.join(artifact_uri, "model")
-                print(f"Debug: Model artifact URI: {model_uri}")
-                
                 try:
-                    # 먼저 모델이 저장되었는지 확인
-                    if not os.path.exists(model_uri):
-                        print(f"Debug: Waiting for model artifacts to be saved...")
-                        time.sleep(2)  # 모델 저장 대기
-                    
                     # 모델 설정 가져오기
                     model_params = {
-                        **self.config.models[self.config.project['model_name']]['training'],
                         'model_name': self.config.project['model_name'],
                         'dataset_name': self.config.project['dataset_name'],
-                        'sampling_rate': self.config.data['sampling_rate']
+                        'sampling_rate': dataset_config['sampling_rate']
                     }
                     
-                    # 모델 레지스트리에 등록
+                    # 모델 레지스트리에 등록 (staging으로)
                     model_version = model_manager.promote_to_staging(
                         model_name=self.config.project['model_name'],
-                        run_id=run.info.run_id,
-                        model_uri="model"  # 상대 경로 사용
+                        run_id=run.info.run_id
                     )
                     
                     print(f"Debug: Model registered with version: {model_version.version}")
                     
-                    # 모델 정보 저장 및 동기화
+                    # 모델 정보 저장
                     model_manager.save_model_info(
                         run_id=run.info.run_id,
                         metrics=metrics,
                         params=model_params,
                         version=model_version.version
                     )
-                    
-                    model_manager.sync_model_info()
                     
                 except Exception as e:
                     print(f"Debug: Error during model registration: {str(e)}")
@@ -308,12 +294,16 @@ class ModelTrainer:
             model_data_path = model_save_path / "data"
             model_data_path.mkdir(parents=True, exist_ok=True)
             
+            # 모이터셋 설정 가져오기
+            dataset_config = self.config._config['dataset'][self.config.project['dataset_name']]
+            
             # 모델 설정 저장
             model_config = {
                 **self.config.models[self.config.project['model_name']],  # 전체 모델 설정
                 'model_name': self.config.project['model_name'],
                 'dataset_name': self.config.project['dataset_name'],
-                'sampling_rate': dataset_config['sampling_rate']
+                'sampling_rate': dataset_config['sampling_rate'],
+                'pretrained_model': self.config.models[self.config.project['model_name']]['pretrained_model']
             }
             
             # state_dict만 저장
@@ -321,7 +311,11 @@ class ModelTrainer:
             torch.save(state_dict, model_data_path / "model.pth")
             print(f"Model state dict saved to: {model_data_path / 'model.pth'}")
             
-            # MLflow에 모델 메타데이터 로깅 (한 번만 실행)
+            # MLflow에 모델 메타데이터 로깅
+            print("\nDebug: Registering model with MLflow")
+            print(f"Model name: {self.config.project['model_name']}")
+            print(f"Run ID: {run.info.run_id}")
+            
             mlflow.pytorch.log_model(
                 pytorch_model=model,
                 artifact_path=artifact_path,
@@ -332,10 +326,9 @@ class ModelTrainer:
                 metadata=model_config
             )
             
-            print(f"Model logged to MLflow at: {model_save_path}")
+            print("Debug: Model registration completed")
             
             # 데이터셋 메타데이터 준비
-            dataset_config = self.config._config['dataset'][self.config.project['dataset_name']]
             train_df = pd.read_csv(dataset_config['train_data_path'], sep='\t')
             val_df = pd.read_csv(dataset_config['val_data_path'], sep='\t')
             
@@ -381,6 +374,17 @@ class ModelTrainer:
             evaluator = ModelEvaluator(model, tokenizer)
             cm_fig = evaluator.plot_confusion_matrix(data_module.val_dataset)
             
+            # 메타데이터 준비
+            metadata = {
+                "model_info": {
+                    "name": self.config.project['model_name'],
+                    "version": datetime.now().strftime("%Y%m%d_%H%M%S"),
+                    "metrics": metrics
+                },
+                "dataset_info": dataset_info,
+                "training_config": model_config
+            }
+            
             # MLflow 아티팩트 로깅
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_dir = Path(temp_dir)
@@ -393,6 +397,7 @@ class ModelTrainer:
                 cm_fig.savefig(temp_dir / "confusion_matrix.png")
                 plt.close(cm_fig)
                 
+                # 아티팩트 로깅
                 mlflow.log_artifacts(str(temp_dir), metadata_path)
             
         except Exception as e:

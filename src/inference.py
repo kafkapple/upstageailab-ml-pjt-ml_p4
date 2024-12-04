@@ -43,15 +43,18 @@ class SentimentPredictor:
         device: Optional[str] = None
     ):
         """감정 분석 예측기 초기화"""
-        self.config = Config(config_path)
-        self.model_manager = MLflowModelManager(self.config)
-        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
         try:
+            self.config = Config(config_path)
+            self.model_manager = MLflowModelManager(self.config)
+            self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            
             # 1. model_registry.json에서 모델 정보 가져오기
             model_infos = self.model_manager.load_model_info()
             if not model_infos:
                 raise ValueError("No models found in registry")
+            
+            # 기본값으로 model_info 초기화
+            model_info = None
             
             # alias에 따른 모델 선택
             if alias == "champion":
@@ -64,7 +67,7 @@ class SentimentPredictor:
             
             if not model_info:
                 print("No champion or candidate model found, using latest model...")
-                model_info = model_infos[-1]  # 최신 모델
+                model_info = model_infos[-1]  # 최신 모델 사용
                 
             print(f"Selected model info: {model_info['run_name']} (version: {model_info['version']})")
             
@@ -78,6 +81,18 @@ class SentimentPredictor:
                 / "data" 
                 / "model.pth"
             )
+            
+            print(f"\nDebug: Model path details:")
+            print(f"Artifact location: {self.config.mlflow.artifact_location}")
+            print(f"Run ID: {run_id}")
+            print(f"Full path: {model_path}")
+            print(f"Path exists: {model_path.exists()}")
+            
+            # 대체 경로 확인
+            alt_path = Path("mlartifacts") / run_id / "artifacts" / "model" / "data" / "model.pth"
+            print(f"\nDebug: Alternative path details:")
+            print(f"Alt path: {alt_path}")
+            print(f"Alt path exists: {alt_path.exists()}")
             
             if not model_path.exists():
                 raise ValueError(f"Model file not found: {model_path}")
@@ -102,8 +117,19 @@ class SentimentPredictor:
             
             # 5. state_dict 로드
             print(f"Loading state dict from: {model_path}")
-            state_dict = torch.load(model_path, map_location=self.device)
-            self.model.load_state_dict(state_dict)
+            try:
+                # 먼저 state_dict로 로드 시도
+                state_dict = torch.load(model_path, map_location=self.device)
+                if isinstance(state_dict, dict):
+                    self.model.load_state_dict(state_dict)
+                else:
+                    # state_dict가 아닌 경우 전체 모델로 로드 시도
+                    loaded_model = state_dict
+                    self.model.load_state_dict(loaded_model.state_dict())
+            except Exception as e:
+                print(f"Error loading state dict: {str(e)}")
+                raise
+            
             self.model.to(self.device)
             self.model.eval()
             
@@ -269,7 +295,7 @@ class SentimentPredictor:
             return_tensors="pt"
         ).to(self.device)
         
-        # 필요한 입력만 선택 (token_type_ids 제외)
+        # 필요한 입력만 ���택 (token_type_ids 제외)
         model_inputs = {
             'input_ids': inputs['input_ids'],
             'attention_mask': inputs['attention_mask']
@@ -343,9 +369,9 @@ if __name__ == "__main__":
     # Config 초기화
     main()
     # model manage
-    config = Config()
+    # config = Config()
     
-    # MLflow 모델 관리 초기화
-    model_manager = MLflowModelManager(config)
-    model_manager.manage_model(config.project['model_name'])
+    # # MLflow 모델 관리 초기화
+    # model_manager = MLflowModelManager(config)
+    # model_manager.manage_model(config.project['model_name'])
     
