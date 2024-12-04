@@ -2,7 +2,10 @@ import torch
 from typing import Dict, List, Tuple
 import numpy as np
 from pathlib import Path
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score
+from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 class ModelEvaluator:
     def __init__(self, model, tokenizer, device='cuda' if torch.cuda.is_available() else 'cpu'):
@@ -12,29 +15,30 @@ class ModelEvaluator:
         self.model.to(device)
         self.model.eval()
 
-    def evaluate_dataset(self, data_module, n_samples: int = 5) -> Dict:
-        """전체 데이터셋에 대한 평가 수행"""
-        metrics = {}
+    def evaluate_dataset(self, data_module):
+        """데이터셋 평가"""
+        y_true = []
+        y_pred = []
         
-        # 전체 검증 세트에 대한 메트릭 계산
-        predictions, labels, confidences = self._get_predictions(data_module.val_dataloader())
+        self.model.eval()
+        with torch.no_grad():
+            for batch in data_module.val_dataloader():
+                inputs = {
+                    'input_ids': batch['input_ids'].to(self.model.device),
+                    'attention_mask': batch['attention_mask'].to(self.model.device)
+                }
+                outputs = self.model(**inputs)
+                predictions = torch.argmax(outputs.logits, dim=-1)
+                
+                y_true.extend(batch['labels'].cpu().numpy())
+                y_pred.extend(predictions.cpu().numpy())
         
-        # 기본 메트릭 계산
-        metrics['accuracy'] = self._calculate_accuracy(predictions, labels)
-        metrics['avg_confidence'] = np.mean(confidences)
-        
-        # F1 스코어 계산
-        metrics['f1'] = f1_score(labels, predictions, average='weighted')
-        
-        # 신뢰도 구간별 정확도
-        confidence_metrics = self._calculate_confidence_bins(predictions, labels, confidences)
-        metrics.update(confidence_metrics)
-        
-        # 샘플 예측 결과
-        sample_predictions = self._get_sample_predictions(data_module.val_dataset, n_samples)
-        metrics['sample_predictions'] = sample_predictions
-        
-        return metrics
+        return {
+            'accuracy': accuracy_score(y_true, y_pred),
+            'f1': f1_score(y_true, y_pred, average='binary'),
+            'precision': precision_score(y_true, y_pred, average='binary'),
+            'recall': recall_score(y_true, y_pred, average='binary')
+        }
     
     def _get_predictions(self, dataloader) -> Tuple[List, List, List]:
         """데이터로더로부터 예측 수행"""
@@ -108,3 +112,58 @@ class ModelEvaluator:
                 })
         
         return predictions
+    
+    def plot_confusion_matrix(self, dataset, labels=['부정', '긍정'], normalize=True):
+        """Confusion Matrix 생성
+        
+        Args:
+            dataset: 평가할 데이터셋
+            labels: 레이블 이름
+            normalize: 정규화 여부
+            
+        Returns:
+            matplotlib.figure.Figure: Confusion Matrix 그래프
+        """
+        y_true = []
+        y_pred = []
+        
+        with torch.no_grad():
+            for i in range(len(dataset)):
+                sample = dataset[i]
+                inputs = {
+                    'input_ids': sample['input_ids'].unsqueeze(0).to(self.device),
+                    'attention_mask': sample['attention_mask'].unsqueeze(0).to(self.device)
+                }
+                
+                outputs = self.model(**inputs)
+                logits = outputs.logits
+                pred_label = torch.argmax(logits, dim=-1).item()
+                
+                y_true.append(sample['labels'].item())
+                y_pred.append(pred_label)
+        
+        cm = confusion_matrix(y_true, y_pred, normalize='true' if normalize else None)
+        
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(
+            cm,
+            annot=True,
+            fmt='.2%' if normalize else 'd',
+            cmap='Blues',
+            xticklabels=labels,
+            yticklabels=labels,
+            cbar=True,
+            square=True
+        )
+        
+        plt.title('Confusion Matrix' + (' (Normalized)' if normalize else ''),
+                 fontsize=14, pad=20)
+        plt.ylabel('True Label', fontsize=12, labelpad=10)
+        plt.xlabel('Predicted Label', fontsize=12, labelpad=10)
+        
+        plt.rcParams['font.family'] = 'DejaVu Sans'
+        plt.rcParams['font.size'] = 12
+        
+        plt.tight_layout()
+        
+        return plt.gcf()  # 현재 figure 반환
