@@ -6,11 +6,11 @@ mlflow:
   mlrun_path: "mlruns"
   backend_store_uri: "mlruns"
   model_info_path: "config/model_registry.json"
-  artifact_location: "mlruns"
+  artifact_location: "mlartifacts"
   server_config:
     workers: 4
     request_header_size: 65536
-    default_artifact_root: "mlruns"
+    default_artifact_root: "mlartifacts"
 
 project:
   random_state: 42
@@ -55,7 +55,7 @@ models:
       optimizer: 'AdamW'
       lr_scheduler: 'exp'
       precision: 16
-      num_unfreeze_layers: 3
+      num_unfreeze_layers: -1
       accumulate_grad_batches: 2
       
   KcELECTRA:
@@ -63,7 +63,7 @@ models:
     pretrained_model: "beomi/KcELECTRA-base"
     model_dir: "models"
     training:
-      epochs: 3
+      epochs: 1
       num_labels: 2
       batch_size: 32
       lr: 2.0e-5
@@ -93,13 +93,13 @@ common:
     
   # 체크포인트 설정
   checkpoint:
-    dirpath: "checkpoints"
+    dirpath: "logs/checkpoints"
     filename: "{epoch}-{val_accuracy:.4f}"
     monitor: "val_accuracy"
     mode: "max"
     save_top_k: 1
-    save_last: true
-    every_n_epochs: 1
+    save_last: false
+    every_n_epochs: 10
 
 # Hyperparameter 탐색 설정
 hpo:

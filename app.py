@@ -75,17 +75,35 @@ def update_statistics(sentiment: str):
 
 def add_to_history(text: str, result: dict, model_info: dict):
     """Add prediction to history"""
-    st.session_state.history.append({
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "text": text,
-        "sentiment": result['label'],
-        "confidence": result['confidence'],
-        "negative_prob": result['probs']['부정'],
-        "positive_prob": result['probs']['긍정'],
-        "model_name": model_info['run_name'],
-        "model_stage": model_info['stage'],
-        "model_version": model_info['version']
-    })
+    try:
+        # 결과 구조 확인 및 변환
+        if 'probabilities' in result:  # 이전 형식
+            probs = {
+                '긍정': result['probabilities'][1],
+                '부정': result['probabilities'][0]
+            }
+        elif 'probs' in result:  # 새로운 형식
+            probs = result['probs']
+        else:
+            raise ValueError("Invalid result format: missing probabilities")
+
+        st.session_state.history.append({
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "text": text,
+            "sentiment": result['label'],
+            "confidence": result['confidence'],
+            "negative_prob": probs['부정'],
+            "positive_prob": probs['긍정'],
+            "model_name": model_info['run_name'],
+            "model_stage": model_info['stage'],
+            "model_version": model_info['version']
+        })
+        
+    except Exception as e:
+        print(f"Error adding to history: {str(e)}")
+        print(f"Result structure: {result}")
+        import traceback
+        traceback.print_exc()
 
 def display_model_info(model_info):
     """Display model information in sidebar"""
@@ -344,15 +362,11 @@ def main():
                     st.plotly_chart(fig, use_container_width=True)
                 
                 # 히스토리에 추가
-                add_to_history(text, {
-                    'text': text,
-                    'label': result['label'],
-                    'confidence': result['confidence'],
-                    'probabilities': [
-                        result['probs']['부정'],
-                        result['probs']['긍정']
-                    ]
-                }, selected_model_info)
+                add_to_history(
+                    text=text,
+                    result=result,  # 원본 결과 그대로 전달
+                    model_info=selected_model_info
+                )
                 update_statistics(result['label'])
                 
         except Exception as e:
