@@ -2,6 +2,40 @@ import os
 from pathlib import Path
 import subprocess
 from config import Config
+import yaml
+from pathlib import Path
+from utils.path_utils import convert_to_mlflow_uri, get_mlflow_paths
+
+    # 경로를 Unix 스타일로 통일
+    
+def start_server(config):
+    # 경로를 절대 경로로 변환
+    mlflow_paths = get_mlflow_paths(config)
+    backend_store_uri = convert_to_mlflow_uri(mlflow_paths['backend_store_uri'])#f"file:///{mlruns_path}"
+    default_artifact_root = convert_to_mlflow_uri(mlflow_paths['artifact_root'])#f"file:///{artifact_root}"
+    
+    # Windows 경로를 MLflow URI 형식으로 변환
+    if os.name == 'nt':
+        # 상대 경로 사용
+        backend_store_uri = "mlruns"
+        default_artifact_root = "mlruns"
+    else:
+        # Linux/Unix의 경우 절대 경로 사용
+        backend_store_uri = str(backend_store_uri)
+        default_artifact_root = str(default_artifact_root)
+    
+    print(f"\n=== MLflow Server Configuration ===")
+    print(f"Backend Store URI: {backend_store_uri}")
+    print(f"Default Artifact Root: {default_artifact_root}")
+    
+    # 명령어를 한 줄로 구성
+    cmd = f"mlflow server --host 127.0.0.1 --port 5050 --backend-store-uri {backend_store_uri} --default-artifact-root {default_artifact_root}"
+    
+    print(f"\nStarting MLflow server with command:")
+    print(cmd)
+    
+    os.system(cmd)
+
 
 def start_mlflow_server(config: Config):
     """MLflow 서버 시작"""
@@ -22,10 +56,13 @@ def start_mlflow_server(config: Config):
     uri_parts = config.mlflow.tracking_uri.replace("http://", "").split(":")
     mlflow_host = uri_parts[0]  # 127.0.0.1
     mlflow_port = uri_parts[1]  # 5050
+
+    from utils.path_utils import convert_to_mlflow_uri, get_mlflow_paths
+
     
     # 경로를 Unix 스타일로 통일
-    mlflow_backend_store_uri = f"file:///{mlruns_path}"
-    mlflow_default_artifact_root = f"file:///{artifact_root}"
+    mlflow_backend_store_uri = convert_to_mlflow_uri(mlruns_path)#f"file:///{mlruns_path}"
+    mlflow_default_artifact_root = convert_to_mlflow_uri(artifact_root)#f"file:///{artifact_root}"
     
     print(f"Host: {mlflow_host}")
     print(f"Port: {mlflow_port}")
@@ -93,7 +130,8 @@ def update_artifact_location(config: Config, experiment_id: str, run_id: str):
 
 if __name__ == "__main__":
     config = Config()
-    start_mlflow_server(config) 
+    #start_mlflow_server(config) 
+    start_server(config)
 
 # MLflow UI 실행 옵션:
 # mlflow ui --host 0.0.0.0 --port 5050 &

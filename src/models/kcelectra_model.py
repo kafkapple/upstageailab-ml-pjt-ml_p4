@@ -13,6 +13,9 @@ class KcELECTRA(pl.LightningModule):
         pretrained_model: str = "beomi/KcELECTRA-base",
         num_labels: int = 2,
         num_unfreeze_layers: int = -1,
+        learning_rate: float = 2e-5,
+        optimizer: str = 'AdamW',
+        scheduler: str = 'cosine',
         **kwargs
     ):
         """
@@ -22,6 +25,9 @@ class KcELECTRA(pl.LightningModule):
             pretrained_model: 사전학습 모델 경로
             num_labels: 레이블 수
             num_unfreeze_layers: Fine-tuning할 레이어 수 (-1: 전체)
+            learning_rate: 학습률
+            optimizer: 옵티마이저 ('AdamW' 또는 'Adam')
+            scheduler: 학습률 스케줄러 ('exp' 또는 'cosine')
         """
         super().__init__()
         self.save_hyperparameters()
@@ -37,9 +43,9 @@ class KcELECTRA(pl.LightningModule):
             self._freeze_layers(num_unfreeze_layers)
         
         # 학습 파라미터 초기화
-        self.lr = 2e-5
-        self.optimizer_name = 'AdamW'
-        self.scheduler_name = 'cosine'
+        self.lr = learning_rate
+        self.optimizer_name = optimizer
+        self.scheduler_name = scheduler
     
     def _freeze_layers(self, num_unfreeze_layers: int):
         """레이어 동결 설정"""

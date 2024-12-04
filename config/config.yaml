@@ -5,8 +5,8 @@ mlflow:
   model_registry_metric_threshold: 0.3
   mlrun_path: "mlruns"
   backend_store_uri: "mlruns"
-  model_info_path: "config/model_registry.json"
-  artifact_location: "mlruns"
+  model_registry_path: "config/model_registry.json"
+  artifact_root: "mlruns"
   server_config:
     workers: 4
     request_header_size: 65536
@@ -16,6 +16,7 @@ project:
   random_state: 42
   dataset_name: "nsmc"
   model_name: "KcBERT"
+  data_path: "data"
 
 # 데이터 설정
 dataset:

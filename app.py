@@ -396,3 +396,7 @@ def main():
 
 if __name__ == "__main__":
     main() 
+    from src.inference import SentimentPredictor
+    predictor = SentimentPredictor()
+    result = predictor.predict("안녕하세요")
+    print(result)

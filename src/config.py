@@ -15,8 +15,8 @@ class MLflowConfig:
     model_registry_metric_threshold: float
     mlrun_path: Path
     backend_store_uri: Path
-    model_info_path: Path
-    artifact_location: Path
+    model_registry_path: Path
+    artifact_root: Path
     server_config: Dict[str, Any]
 
 class Config:
@@ -61,8 +61,8 @@ class Config:
             model_registry_metric_threshold=self.config["mlflow"]["model_registry_metric_threshold"],
             mlrun_path=self.project_root / self.config["mlflow"]["mlrun_path"],
             backend_store_uri=self.project_root / self.config["mlflow"]["backend_store_uri"],
-            model_info_path=self.project_root / self.config["mlflow"]["model_info_path"],
-            artifact_location=self.project_root / self.config["mlflow"]["artifact_location"],
+            model_registry_path=self.project_root / self.config["mlflow"]["model_registry_path"],
+            artifact_root=self.project_root / self.config["mlflow"]["artifact_root"],
             server_config=self.config["mlflow"]["server_config"]
         )
         
@@ -116,8 +116,8 @@ class Config:
         # MLflow 경로 생성
         self.mlflow.mlrun_path.mkdir(parents=True, exist_ok=True)
         self.mlflow.backend_store_uri.mkdir(parents=True, exist_ok=True)
-        self.mlflow.artifact_location.mkdir(parents=True, exist_ok=True)
-        Path(self.mlflow.model_info_path).parent.mkdir(parents=True, exist_ok=True)
+        self.mlflow.artifact_root.mkdir(parents=True, exist_ok=True)
+        Path(self.mlflow.model_registry_path).parent.mkdir(parents=True, exist_ok=True)
         
         print(f"\nDebug: Directories initialized:")
         print(f"\nDebug: Project root: {self.project_root}")
@@ -135,8 +135,8 @@ class Config:
         print(f"\nDebug: MLflow paths:")
         print(f"  - MLrun path: {self.mlflow.mlrun_path}")
         print(f"  - Backend store: {self.mlflow.backend_store_uri}")
-        print(f"  - Artifact location: {self.mlflow.artifact_location}")
-        print(f"  - Model info: {self.mlflow.model_info_path}")
+        print(f"  - Artifact root: {self.mlflow.artifact_root}")
+        print(f"  - Model registry: {self.mlflow.model_registry_path}")
 
     def _load_config(self) -> Dict[str, Any]:
         """YAML 설정 파일 로드"""

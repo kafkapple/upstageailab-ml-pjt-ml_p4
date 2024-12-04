@@ -241,11 +241,11 @@ if __name__ == "__main__":
 
     text = "정말 재미있는 영화였어요!"
     print(f"\n==== Prediction ====\nText: {text}\n")
-    result = predictor.predict(text)
+    result = predictor.predict([text])
     print_results([result])
 
     # 배치 예측 & 확률값 포함
-    texts = ["다시 보고 싶은 영화", "별로에요"]
+    [texts] = ["다시 보고 싶은 영화", "별로에요"]
     print(f"\n==== Batch Prediction ====\nTexts: {texts}\n")
     
     results = predictor.predict(

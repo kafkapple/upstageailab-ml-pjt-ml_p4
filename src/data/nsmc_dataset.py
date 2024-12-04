@@ -6,7 +6,7 @@ import pytorch_lightning as pl
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import Dataset, DataLoader
 from typing import Dict, Optional, Any, Tuple
-from transformers import PreTrainedTokenizerBase
+from transformers import PreTrainedTokenizer, PreTrainedTokenizerBase
 import torch
 import requests
 
@@ -115,25 +115,40 @@ class NSMCDataset(Dataset):
             'label': torch.tensor(label)
         }
 
-class NSMCDataModule(LightningDataModule):
+class NSMCDataModule(pl.LightningDataModule):
     def __init__(
         self,
         config: Config,
-        tokenizer: PreTrainedTokenizerBase,
+        tokenizer: PreTrainedTokenizer,
+        batch_size: int = 32,
+        max_length: int = 256,
         **kwargs
     ):
+        """
+        NSMC 데이터 모듈
+        
+        Args:
+            config: 설정 객체
+            tokenizer: 토크나이저
+            batch_size: 배치 크기
+            max_length: 최대 시퀀스 길이
+        """
         super().__init__()
         self.config = config
         self.tokenizer = tokenizer
+        self.batch_size = batch_size
+        self.max_length = max_length
+        
+        # 데이터셋 경로
+        self.data_dir = config.paths['raw_data']
         
         # 데이터셋 설정
-        self.batch_size = self.config.training_config['batch_size']
-        self.max_length = self.config.training_config['max_length']
-        self.num_workers = kwargs.get('num_workers', 4)
+        self.train_path = self.data_dir / config.data['train_data_path']
+        self.val_path = self.data_dir / config.data['val_data_path']
         
-        # 데이터 경로
-        self.train_path = self.config.paths['raw_data'] / self.config.data['train_data_path']
-        self.val_path = self.config.paths['raw_data'] / self.config.data['val_data_path']
+        # 컬럼 매핑
+        self.text_col = config.data['column_mapping']['text']
+        self.label_col = config.data['column_mapping']['label']
         
         # 데이터셋
         self.train_dataset = None
@@ -180,7 +195,7 @@ class NSMCDataModule(LightningDataModule):
             self.train_dataset,
             batch_size=self.batch_size,
             shuffle=True,
-            num_workers=self.num_workers
+            num_workers=os.cpu_count()
         )
     
     def val_dataloader(self):
@@ -189,7 +204,7 @@ class NSMCDataModule(LightningDataModule):
             self.val_dataset,
             batch_size=self.batch_size,
             shuffle=False,
-            num_workers=self.num_workers
+            num_workers=os.cpu_count()
         )
 
 def log_data_info(data_module: NSMCDataModule):
