@@ -16,6 +16,7 @@ from transformers import (
     PreTrainedModel,
     PreTrainedTokenizer
 )
+import mlflow
 
 def print_results(results):
     for result in results:
@@ -41,69 +42,83 @@ class SentimentPredictor:
         config_path: str = "config/config.yaml",
         device: Optional[str] = None
     ):
-        """감정 분석 예측기 초기화
-        
-        Args:
-            model_name: 사용할 모델 이름 (None일 경우 가장 최신 모델 사용)
-            alias: 모델 별칭 ("champion", "candidate", "latest" 중 하나)
-            config_path: 설정 파일 경로
-            device: 실행 디바이스 (None일 경우 자동 감지)
-        """
-        from src.config import Config
-        from src.utils.mlflow_utils import MLflowModelManager
-        
-        # 설정 및 MLflow 매니저 초기화
+        """감정 분석 예측기 초기화"""
         self.config = Config(config_path)
         self.model_manager = MLflowModelManager(self.config)
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        # 모델 경로 가져오기 - alias 기반으로 수정
         try:
-            model_version = self.model_manager.client.get_model_version_by_alias(
-                name=model_name or self.config.project['model_name'],
-                alias=alias
+            # 1. model_registry.json에서 모델 정보 가져오기
+            model_infos = self.model_manager.load_model_info()
+            if not model_infos:
+                raise ValueError("No models found in registry")
+            
+            # alias에 따른 모델 선택
+            if alias == "champion":
+                model_info = next((info for info in model_infos if info['stage'] == 'champion'), None)
+                if not model_info:
+                    print("No champion model found, trying candidate...")
+                    model_info = next((info for info in model_infos if info['stage'] == 'candidate'), None)
+            elif alias == "candidate":
+                model_info = next((info for info in model_infos if info['stage'] == 'candidate'), None)
+            
+            if not model_info:
+                print("No champion or candidate model found, using latest model...")
+                model_info = model_infos[-1]  # 최신 모델
+                
+            print(f"Selected model info: {model_info['run_name']} (version: {model_info['version']})")
+            
+            # 2. 모델 파일 경로 구성
+            run_id = model_info['run_id']
+            model_path = (
+                Path(self.config.mlflow.artifact_location) 
+                / run_id 
+                / "artifacts" 
+                / "model" 
+                / "data" 
+                / "model.pth"
             )
-            if not model_version:
-                raise ValueError(f"No model found with alias: {alias}")
-                
-            model_path = Path(model_version.source)
+            
             if not model_path.exists():
-                raise ValueError(f"Model path not found: {model_path}")
-                
+                raise ValueError(f"Model file not found: {model_path}")
+            
             print(f"Loading model from: {model_path}")
             
-            # config.json 로드
-            with open(model_path / "config.json", 'r', encoding='utf-8') as f:
-                self.model_config = json.load(f)
-                
-            # 모델 타입에 따른 클래스 선택
-            model_class, tokenizer_class = self._get_model_class(self.model_config['pretrained_model'])
+            # 3. 모델 설정 가져오기
+            self.model_config = model_info['params']
+            self.max_length = int(self.model_config.get('max_length', 512))
             
-            # 토크나이저 로드
-            self.tokenizer = tokenizer_class.from_pretrained(self.model_config['pretrained_model'])
+            # 4. 모델 클래스 결정 및 초기화
+            model_type = self.model_config['model_name']
+            if 'KcBERT' in model_type:
+                from src.models.kcbert_model import KcBERT as ModelClass
+            elif 'KcELECTRA' in model_type:
+                from src.models.kcelectra_model import KcELECTRA as ModelClass
+            else:
+                raise ValueError(f"Unknown model type: {model_type}")
             
-            # 모델 로드
-            self.model = model_class.from_pretrained(
-                self.model_config['pretrained_model'],
-                num_labels=self.model_config['num_labels']
-            )
+            print(f"Initializing model class: {ModelClass.__name__}")
+            self.model = ModelClass(**self.model_config)
             
-            # 학습된 가중치 로드
-            self.model.load_state_dict(
-                torch.load(model_path / "model.pt", map_location=self.device),
-                strict=False
-            )
-            
-            # 최대 시퀀스 길이 설정
-            self.max_length = self.model_config.get('max_length', 512)
-            
-            # 모델을 지정된 디바이스로 이동
+            # 5. state_dict 로드
+            print(f"Loading state dict from: {model_path}")
+            state_dict = torch.load(model_path, map_location=self.device)
+            self.model.load_state_dict(state_dict)
             self.model.to(self.device)
             self.model.eval()
             
-        except Exception as e:
-            print(f"Error during model loading: {str(e)}")
+            # 6. 토크나이저 로드
+            print(f"Loading tokenizer: {self.model_config['pretrained_model']}")
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_config['pretrained_model'])
             
+            print("Model initialization completed successfully")
+            
+        except Exception as e:
+            print(f"Error during model initialization: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
+        
     def _load_model_info(
         self,
         model_name: Optional[str],
@@ -228,7 +243,7 @@ class SentimentPredictor:
         Args:
             text: 입력 텍스트 또는 텍스트 리스트
             return_probs: 확률값 반환 여부
-            
+        
         Returns:
             Dict 또는 Dict 리스트: 예측 결과
             {
@@ -254,9 +269,15 @@ class SentimentPredictor:
             return_tensors="pt"
         ).to(self.device)
         
+        # 필요한 입력만 선택 (token_type_ids 제외)
+        model_inputs = {
+            'input_ids': inputs['input_ids'],
+            'attention_mask': inputs['attention_mask']
+        }
+        
         # 예측
         with torch.no_grad():
-            outputs = self.model(**inputs)
+            outputs = self.model(**model_inputs)
             probs = torch.softmax(outputs.logits, dim=-1)
             predictions = torch.argmax(outputs.logits, dim=-1)
             confidences = torch.max(probs, dim=-1).values
@@ -285,8 +306,15 @@ class SentimentPredictor:
 
 def main():
     try:
-        # champion(Production) 모델 로드
-        predictor = SentimentPredictor(alias="champion")  # "Production" 대신 "champion" 사용
+        # Config 초기화
+        config = Config()
+        
+        # 기본적으로 champion 모델 시도, 없으면 candidate나 최신 모델 사용
+        predictor = SentimentPredictor(
+            model_name=config.project['model_name'],
+            alias="champion",
+            config_path="config/config.yaml"
+        )
         
         # 단일 텍스트 예측
         text = "정말 재미있는 영화였어요!"
@@ -303,8 +331,7 @@ def main():
         )
         print_results(results)
         
-        return results # 
-        # lists: text, label, confidence
+        return results
         
     except Exception as e:
         print(f"Error during inference: {str(e)}")
@@ -313,4 +340,12 @@ def main():
         return None
 
 if __name__ == "__main__":
+    # Config 초기화
     main()
+    # model manage
+    config = Config()
+    
+    # MLflow 모델 관리 초기화
+    model_manager = MLflowModelManager(config)
+    model_manager.manage_model(config.project['model_name'])
+    

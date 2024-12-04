@@ -10,6 +10,9 @@ import mlflow
 import shutil
 from mlflow.tracking import MlflowClient
 from mlflow.entities.model_registry import ModelVersion
+import sys
+import os
+
 from src.config import Config
 
 class ModelAlias(Enum):
@@ -67,23 +70,64 @@ def cleanup_artifacts(config, metrics: Dict[str, float], run_id: str):
     except Exception as e:
         print(f"Error cleaning up artifacts: {str(e)}")
 
-def setup_mlflow_server(config: Config):
+def setup_mlflow_server(config: Config, reset_experiments: bool = False):
     """MLflow 서버 설정
     
     Args:
         config: 설정 객체
+        reset_experiments: MLflow 실험 데이터 초기화 여부 (기본값: False)
     """
-    # 서버 환경 변수 설정
-    os.environ['MLFLOW_WORKERS'] = str(config.mlflow.server_config.get('workers', 4))
-    os.environ['MLFLOW_HTTP_REQUEST_HEADER_SIZE'] = str(config.mlflow.server_config.get('request_header_size', 65536))
-    os.environ['MLFLOW_HTTP_REQUEST_TIMEOUT'] = '1800'  # 30분
-    os.environ['MLFLOW_MULTIPART_UPLOAD_CHUNK_SIZE'] = '5242880'  # 5MB
+    # 절대 경로 사용
+    root_dir = Path.cwd().resolve()
     
-    print(f"Debug: Setting up MLflow server with tracking URI: {config.mlflow.tracking_uri}")
-    print(f"Debug: Workers: {os.environ['MLFLOW_WORKERS']}")
-    print(f"Debug: Request header size: {os.environ['MLFLOW_HTTP_REQUEST_HEADER_SIZE']}")
+    # MLflow 디렉토리 초기화
+    mlruns_dir = root_dir / 'mlruns'
+    mlartifacts_dir = root_dir / 'mlartifacts'
+    trash_dir = mlruns_dir / ".trash"
+    
+    print(f"\nDebug: Setting up MLflow directories:")
+    print(f"Root dir: {root_dir}")
+    print(f"MLruns dir: {mlruns_dir}")
+    print(f"Artifacts dir: {mlartifacts_dir}")
+    
+    # 실험 데이터 초기화 (선택적)
+    if reset_experiments:
+        print("Resetting MLflow experiments...")
+        if mlruns_dir.exists():
+            shutil.rmtree(mlruns_dir)
+        if mlartifacts_dir.exists():
+            shutil.rmtree(mlartifacts_dir)
+    
+    # 디렉토리 생성
+    mlruns_dir.mkdir(parents=True, exist_ok=True)
+    mlartifacts_dir.mkdir(parents=True, exist_ok=True)
+    trash_dir.mkdir(parents=True, exist_ok=True)
+    
+    # MLflow 설정
+    registry_uri = f"file://{mlruns_dir}"
+    os.environ['MLFLOW_TRACKING_URI'] = config.mlflow.tracking_uri
+    os.environ['MLFLOW_REGISTRY_URI'] = registry_uri
     
     mlflow.set_tracking_uri(config.mlflow.tracking_uri)
+    mlflow.set_registry_uri(registry_uri)
+    
+    print(f"\nDebug: MLflow Configuration:")
+    print(f"Tracking URI: {mlflow.get_tracking_uri()}")
+    print(f"Registry URI: {mlflow.get_registry_uri()}")
+    
+    # 모델 레지스트리 초기화 (선택적)
+    if reset_experiments:
+        client = MlflowClient()
+        try:
+            registered_models = client.search_registered_models()
+            for model in registered_models:
+                client.delete_registered_model(model.name)
+        except:
+            pass
+    
+    print(f"Debug: MLflow environment initialized")
+    print(f"Debug: MLflow metadata directory: {mlruns_dir}")
+    print(f"Debug: MLflow artifacts directory: {mlartifacts_dir}")
 
 def initialize_mlflow(config: Config) -> str:
     """MLflow 초기화 및 설정
@@ -150,25 +194,43 @@ class MLflowModelManager:
     def promote_to_staging(self, model_name: str, run_id: str, model_uri: str = 'model') -> ModelVersion:
         """모델을 Staging(candidate) 단계로 승격"""
         try:
-            model_version = self.register_model(model_name, run_id, model_uri)
+            print(f"\n=== Debug: Promoting model to Candidate ===")
+            print(f"Debug: Model name: {model_name}")
+            print(f"Debug: Run ID: {run_id}")
             
-            # alias 설정 ('candidate')
+            # 1. 모델 등록
+            full_uri = f"runs:/{run_id}/{model_uri}"
+            model_version = mlflow.register_model(full_uri, model_name)
+            print(f"Debug: Model registered as version: {model_version.version}")
+            
+            # 2. 기존 alias 제거
+            try:
+                # 현재 candidate alias 제거
+                current_candidate = self.client.get_model_version_by_alias(
+                    name=model_name,
+                    alias=ModelAlias.STAGING.value
+                )
+                if current_candidate:
+                    print(f"Debug: Removing candidate alias from version: {current_candidate.version}")
+                    self.client.delete_registered_model_alias(
+                        name=model_name,
+                        alias=ModelAlias.STAGING.value
+                    )
+            except Exception as e:
+                print(f"Debug: No current candidate found: {str(e)}")
+            
+            # 3. 새로운 candidate 설정
+            print(f"Debug: Setting new candidate version: {model_version.version}")
             self.client.set_registered_model_alias(
                 name=model_name,
                 alias=ModelAlias.STAGING.value,
                 version=model_version.version
             )
             
-            # model_registry.json 업데이트
-            model_infos = self.load_model_info()
-            for model_info in model_infos:
-                if model_info.get('run_id') == run_id:
-                    model_info['stage'] = ModelAlias.STAGING.value
-                    
-            with open(self.model_info_path, 'w', encoding='utf-8') as f:
-                json.dump(model_infos, f, indent=2, ensure_ascii=False)
+            # 4. 동기화
+            self.sync_model_info()
             
-            print(f"Model: {model_name}, version: {model_version.version} promoted to {ModelAlias.STAGING.value}")
+            print(f"Debug: Model {model_name} version {model_version.version} promoted to Candidate")
             return model_version
             
         except Exception as e:
@@ -176,74 +238,94 @@ class MLflowModelManager:
             raise
     
     def promote_to_production(self, model_name: str, version: str) -> None:
-        """모델을 Production(champion) 단계로 승격"""
+        """모델을 Champion으로 승격"""
         try:
-            print(f"\nPromoting model {model_name} version {version} to {ModelAlias.PRODUCTION.value}")
+            print(f"\n=== Debug: Promoting model to Champion ===")
+            print(f"Debug: Model name: {model_name}")
+            print(f"Debug: Version: {version}")
             
-            # 기존 champion 모델을 archived로 이동
+            # 1. 기존 alias 제거
             try:
+                # 현재 champion alias 제거
                 current_champion = self.client.get_model_version_by_alias(
                     name=model_name,
                     alias=ModelAlias.PRODUCTION.value
                 )
                 if current_champion:
-                    self.client.set_registered_model_alias(
+                    print(f"Debug: Removing champion alias from version: {current_champion.version}")
+                    self.client.delete_registered_model_alias(
                         name=model_name,
-                        alias=ModelAlias.ARCHIVED.value,
-                        version=current_champion.version
+                        alias=ModelAlias.PRODUCTION.value
                     )
-            except Exception:
-                pass  # 기존 champion이 없는 경우
+                
+                # 승격될 모델의 candidate alias 제거
+                if self.client.get_model_version_by_alias(
+                    name=model_name,
+                    alias=ModelAlias.STAGING.value
+                ).version == version:
+                    print(f"Debug: Removing candidate alias from version: {version}")
+                    self.client.delete_registered_model_alias(
+                        name=model_name,
+                        alias=ModelAlias.STAGING.value
+                    )
+            except Exception as e:
+                print(f"Debug: Error removing aliases: {str(e)}")
             
-            # 새로운 champion 설정
+            # 2. 새로운 champion 설정
+            print(f"Debug: Setting new champion version: {version}")
             self.client.set_registered_model_alias(
                 name=model_name,
                 alias=ModelAlias.PRODUCTION.value,
                 version=version
             )
             
-            # model_registry.json 업데이트
-            model_infos = self.load_model_info()
+            # 3. model_registry.json 업데이트
+            self.sync_model_info()
             
-            # 기존 Production 모델들을 Archived로 변경
-            for model_info in model_infos:
-                if model_info['stage'] == ModelAlias.PRODUCTION.value:
-                    model_info['stage'] = ModelAlias.ARCHIVED.value
-            
-            # 선택된 모델을 Production으로 변경
-            for model_info in model_infos:
-                if model_info['version'] == version:
-                    model_info['stage'] = ModelAlias.PRODUCTION.value
-                    
-            with open(self.model_info_path, 'w', encoding='utf-8') as f:
-                json.dump(model_infos, f, indent=2, ensure_ascii=False)
-            
-            print(f"Model {model_name} version {version} successfully promoted to {ModelAlias.PRODUCTION.value}")
+            print(f"Debug: Model {model_name} version {version} successfully promoted to Champion")
             
         except Exception as e:
-            print(f"Error promoting model to production: {str(e)}")
+            print(f"Error promoting model to champion: {str(e)}")
             raise
     
     def archive_model(self, model_name: str, version: str) -> None:
         """모델을 Archive 단계로 이동"""
         try:
-            # alias 설정
+            print(f"\n=== Debug: Archiving model ===")
+            print(f"Debug: Model name: {model_name}")
+            print(f"Debug: Version: {version}")
+            
+            # 1. 기존 alias 제거
+            try:
+                # 현재 모델의 alias 확인 및 제거
+                for alias in [ModelAlias.PRODUCTION.value, ModelAlias.STAGING.value]:
+                    try:
+                        current = self.client.get_model_version_by_alias(
+                            name=model_name,
+                            alias=alias
+                        )
+                        if current and current.version == version:
+                            print(f"Debug: Removing {alias} alias from version: {version}")
+                            self.client.delete_registered_model_alias(
+                                name=model_name,
+                                alias=alias
+                            )
+                    except: pass
+            except Exception as e:
+                print(f"Debug: Error removing aliases: {str(e)}")
+            
+            # 2. Archive alias 설정
+            print(f"Debug: Setting archive alias for version: {version}")
             self.client.set_registered_model_alias(
                 name=model_name,
                 alias=ModelAlias.ARCHIVED.value,
                 version=version
             )
             
-            # model_registry.json 업데이트
-            model_infos = self.load_model_info()
-            for model_info in model_infos:
-                if model_info.get('version') == version:
-                    model_info['stage'] = ModelAlias.ARCHIVED.value
-                    
-            with open(self.model_info_path, 'w', encoding='utf-8') as f:
-                json.dump(model_infos, f, indent=2, ensure_ascii=False)
+            # 3. 동기화
+            self.sync_model_info()
             
-            print(f"Model: {model_name}, version: {version} {ModelAlias.ARCHIVED.value}")
+            print(f"Debug: Model {model_name} version {version} archived")
             
         except Exception as e:
             print(f"Error archiving model: {str(e)}")
@@ -274,36 +356,34 @@ class MLflowModelManager:
     def save_model_info(self, run_id: str, metrics: Dict[str, float], params: Dict[str, Any], version: str) -> None:
         """모델 정보를 JSON 파일로 저장"""
         try:
-            # Path 객체를 문자열로 변환
-            serializable_params = {k: str(v) if isinstance(v, Path) else v for k, v in params.items()}
+            # 항상 새로운 모델은 Staging(candidate)으로 시작
+            current_alias = ModelAlias.STAGING.value
             
-            # experiment_id 가져오기
-            run = mlflow.get_run(run_id)
-            experiment_id = run.info.experiment_id
-            experiment_name = mlflow.get_experiment(experiment_id).name
+            # 모델 설정 가져오기
+            model_config = self.config.models[self.config.project['model_name']]
             
             model_info = {
-                "experiment_name": experiment_name,
-                "experiment_id": experiment_id,
+                "experiment_name": mlflow.get_experiment(mlflow.get_run(run_id).info.experiment_id).name,
+                "experiment_id": mlflow.get_run(run_id).info.experiment_id,
                 "run_id": run_id,
                 "run_name": f"{self.config.project['model_name']}_{self.config.project['dataset_name']}",
                 "metrics": metrics,
-                "params": serializable_params,
-                "stage": ModelAlias.STAGING.value,
+                "params": {
+                    **model_config,  # 전체 모델 설정 포함
+                    **{k: str(v) if isinstance(v, Path) else v for k, v in params.items()}
+                },
+                "stage": current_alias,
                 "version": version,
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             
-            # 기존 정보 로드 및 업데이트
             model_infos = self.load_model_info()
             model_infos.append(model_info)
             
-            # 파일 저장
-            self.model_info_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.model_info_path, 'w', encoding='utf-8') as f:
                 json.dump(model_infos, f, indent=2, ensure_ascii=False)
                 
-            print(f"Model info saved successfully to {self.model_info_path}")
+            print(f"Model info saved successfully as {current_alias}")
             
         except Exception as e:
             print(f"Error saving model info: {str(e)}")
@@ -348,57 +428,112 @@ class MLflowModelManager:
         print("\nRegistered Models:")
         print(df.to_string())
     
-    def manage_model(self, model_name: str) -> None:
-        """대화형으로 모델 스테이지를 관리"""
-        self.display_models()
-        
+    def manage_model(self, model_name: str):
+        """대화형 모델 관리"""
         while True:
+            # 모델 목록 표시
             print("\n=== Model Management ===")
-            print("1. Promote model to Production")
-            print("2. Archive model")
-            print("3. Display models")
-            print("4. View model versions")
-            print("5. Exit")
+            model_infos = self.load_model_info()
             
-            choice = input("\nEnter your choice (1-5): ")
+            if not model_infos:
+                print("No models found in registry.")
+                return
             
-            if choice == '1':
-                version = input("Enter model version to promote: ")
-                try:
-                    self.promote_to_production(model_name, version)
-                    self.display_models()
-                except Exception as e:
-                    print(f"Error: {e}")
+            # DataFrame 생성 및 포맷팅
+            df = pd.DataFrame(model_infos)
+            display_columns = [
+                "version",
+                "stage",
+                "metrics",
+                "timestamp"
+            ]
+            df = df[display_columns]
             
-            elif choice == '2':
-                version = input("Enter model version to archive: ")
-                try:
-                    self.archive_model(model_name, version)
-                    self.display_models()
-                except Exception as e:
-                    print(f"Error: {e}")
+            # metrics 컬럼을 보기 좋게 포맷팅
+            df['metrics'] = df['metrics'].apply(lambda x: f"F1: {x.get('val_f1', 0):.4f}")
             
-            elif choice == '3':
-                self.display_models()
+            # 인덱스 1부터 시작
+            df.index = range(1, len(df) + 1)
+            df.index.name = 'index'
             
-            elif choice == '4':
-                try:
-                    versions = self.client.search_model_versions(f"name='{model_name}'")
-                    print("\nAll model versions:")
-                    for v in versions:
-                        print(f"\nVersion: {v.version}")
-                        print(f"Stage: {v.current_stage}")
-                        print(f"Run ID: {v.run_id}")
-                        print(f"Status: {v.status}")
-                        print(f"Creation Time: {datetime.fromtimestamp(v.creation_timestamp/1000.0)}")
-                except Exception as e:
-                    print(f"Error viewing versions: {e}")
+            print("\nRegistered Models:")
+            print(df.to_string())
             
-            elif choice == '5':
+            # 메뉴 표시
+            print("\nOptions:")
+            print("1. Promote model to Champion")
+            print("2. Demote model to Candidate")
+            print("3. Archive model")
+            print("4. Sync model registry")
+            print("q. Quit")
+            
+            choice = input("\nSelect an option: ").strip().lower()
+            
+            if choice == 'q':
                 break
             
-            else:
-                print("Invalid choice. Please try again.")
+            try:
+                if choice in ['1', '2', '3']:
+                    idx = int(input("Enter model index: ")) - 1
+                    if 0 <= idx < len(model_infos):
+                        version = model_infos[idx]['version']
+                        
+                        if choice == '1':
+                            self.promote_to_production(model_name, version)
+                            print(f"Model index {idx+1} promoted to Champion")
+                        elif choice == '2':
+                            self.promote_to_staging(model_name, version)
+                            print(f"Model index {idx+1} demoted to Candidate")
+                        elif choice == '3':
+                            self.archive_model(model_name, version)
+                            print(f"Model index {idx+1} archived")
+                        
+                        self.sync_model_info()
+                    else:
+                        print(f"Invalid index. Please enter a number between 1 and {len(model_infos)}")
+                    
+                elif choice == '4':
+                    self.sync_model_info()
+                    print("Model registry synchronized")
+                    
+            except ValueError:
+                print("Invalid input. Please enter a number.")
+            except Exception as e:
+                print(f"Error: {str(e)}")
+    
+    def _list_all_models(self, model_name: str):
+        """모든 모델 버전 표시"""
+        print("\n=== Model Versions ===")
+        
+        # MLflow에서 모델 버전 정보 가져오기
+        versions = self.client.search_model_versions(f"name='{model_name}'")
+        model_infos = self.load_model_info()
+        
+        # 각 버전의 상태 표시
+        for version in versions:
+            # 현재 alias 확인
+            try:
+                if self.client.get_model_version_by_alias(model_name, ModelAlias.PRODUCTION.value).version == version.version:
+                    status = "Champion"
+                elif self.client.get_model_version_by_alias(model_name, ModelAlias.STAGING.value).version == version.version:
+                    status = "Candidate"
+                elif self.client.get_model_version_by_alias(model_name, ModelAlias.ARCHIVED.value).version == version.version:
+                    status = "Archived"
+                else:
+                    status = "None"
+            except:
+                status = "None"
+            
+            # 모델 정보 찾기
+            model_info = next((info for info in model_infos if info['version'] == version.version), None)
+            metrics = model_info['metrics'] if model_info else {}
+            
+            print(f"\nVersion: {version.version}")
+            print(f"Status: {status}")
+            print(f"Run ID: {version.run_id}")
+            if metrics:
+                print(f"F1 Score: {metrics.get('val_f1', 'N/A'):.4f}")
+            print(f"Created: {version.creation_timestamp}")
     
     def get_production_model_path(self, model_name: str = 'default') -> Optional[str]:
         """프로덕션 모델의 저장 경로 반환"""
@@ -648,6 +783,46 @@ class MLflowModelManager:
         except Exception as e:
             print(f"Error loading production model info: {str(e)}")
             return None
+    
+    def sync_model_info(self):
+        """MLflow alias와 JSON 파일의 stage 정보 동기화"""
+        try:
+            model_infos = self.load_model_info()
+            model_name = self.config.project['model_name']
+            
+            # MLflow에서 각 alias의 버전 확인
+            champion_version = None
+            candidate_version = None
+            
+            try:
+                champion = self.client.get_model_version_by_alias(model_name, ModelAlias.PRODUCTION.value)
+                if champion:
+                    champion_version = champion.version
+            except: pass
+            
+            try:
+                candidate = self.client.get_model_version_by_alias(model_name, ModelAlias.STAGING.value)
+                if candidate:
+                    candidate_version = candidate.version
+            except: pass
+            
+            # JSON 파일 업데이트
+            for info in model_infos:
+                if info['version'] == champion_version:
+                    info['stage'] = ModelAlias.PRODUCTION.value
+                elif info['version'] == candidate_version:
+                    info['stage'] = ModelAlias.STAGING.value
+                else:
+                    info['stage'] = ModelAlias.NONE.value
+            
+            # 저장
+            with open(self.model_info_path, 'w', encoding='utf-8') as f:
+                json.dump(model_infos, f, indent=2, ensure_ascii=False)
+            
+            print("Model info synchronized with MLflow aliases")
+            
+        except Exception as e:
+            print(f"Error synchronizing model info: {str(e)}")
 
 class ModelInference:
     def __init__(self, config):
@@ -690,7 +865,7 @@ class ModelInference:
                 print("No models found in registry.")
                 return None
         
-        # Production 모델 로드
+        # Production 델 로드
         model = self.model_manager.load_production_model(model_name)
         if model is None:
             print("Failed to load production model.")
@@ -727,23 +902,9 @@ if __name__ == "__main__":
     
     # MLflow 모델 관리 초기화
     model_manager = MLflowModelManager(config)
+    model_manager.manage_model(config.project['model_name'])
     
-    # 현재 등록된 모델 표시
-    print("\nRegistered Models:")
-    model_manager.display_models()
+    # # 현재 등록된 모델 표시
+    # print("\nRegistered Models:")
+    # model_manager.display_models()
     
-    # 추론 예시
-    print("\nTesting inference:")
-    inference = ModelInference(config)
-    if inference.load_production_model():
-        texts = [
-            "정말 재미있는 영화였어요!",
-            "시간 낭비했네요...",
-            "그저 그랬어요"
-        ]
-        predictions = inference.predict(texts)
-        for text, pred in zip(texts, predictions):
-            print(f"Text: {text}")
-            print(f"Sentiment: {'긍정' if pred == 1 else '부정'}\n")
-    else:
-        print("Failed to load model for inference.")

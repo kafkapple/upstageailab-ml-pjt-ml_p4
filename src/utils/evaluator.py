@@ -3,6 +3,9 @@ from typing import Dict, List, Tuple
 import numpy as np
 from pathlib import Path
 from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score
+from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 class ModelEvaluator:
     def __init__(self, model, tokenizer, device='cuda' if torch.cuda.is_available() else 'cpu'):
@@ -109,3 +112,58 @@ class ModelEvaluator:
                 })
         
         return predictions
+    
+    def plot_confusion_matrix(self, dataset, labels=['부정', '긍정'], normalize=True):
+        """Confusion Matrix 생성
+        
+        Args:
+            dataset: 평가할 데이터셋
+            labels: 레이블 이름
+            normalize: 정규화 여부
+            
+        Returns:
+            matplotlib.figure.Figure: Confusion Matrix 그래프
+        """
+        y_true = []
+        y_pred = []
+        
+        with torch.no_grad():
+            for i in range(len(dataset)):
+                sample = dataset[i]
+                inputs = {
+                    'input_ids': sample['input_ids'].unsqueeze(0).to(self.device),
+                    'attention_mask': sample['attention_mask'].unsqueeze(0).to(self.device)
+                }
+                
+                outputs = self.model(**inputs)
+                logits = outputs.logits
+                pred_label = torch.argmax(logits, dim=-1).item()
+                
+                y_true.append(sample['labels'].item())
+                y_pred.append(pred_label)
+        
+        cm = confusion_matrix(y_true, y_pred, normalize='true' if normalize else None)
+        
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(
+            cm,
+            annot=True,
+            fmt='.2%' if normalize else 'd',
+            cmap='Blues',
+            xticklabels=labels,
+            yticklabels=labels,
+            cbar=True,
+            square=True
+        )
+        
+        plt.title('Confusion Matrix' + (' (Normalized)' if normalize else ''),
+                 fontsize=14, pad=20)
+        plt.ylabel('True Label', fontsize=12, labelpad=10)
+        plt.xlabel('Predicted Label', fontsize=12, labelpad=10)
+        
+        plt.rcParams['font.family'] = 'DejaVu Sans'
+        plt.rcParams['font.size'] = 12
+        
+        plt.tight_layout()
+        
+        return plt.gcf()  # 현재 figure 반환
