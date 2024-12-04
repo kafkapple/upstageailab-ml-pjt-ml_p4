@@ -21,6 +21,8 @@ def initialize_session_state():
         st.session_state.negative_count = 0
     if 'predictor' not in st.session_state:
         st.session_state.predictor = None
+    if 'model_state_changed' not in st.session_state:
+        st.session_state.model_state_changed = False
 
 @st.cache_resource
 def load_predictor(model_info):
@@ -206,33 +208,27 @@ def display_model_management(model_manager, model_name: str):
         if st.button("상태 변경", type="primary"):
             try:
                 selected_model = df[df['model_id'] == selected_model_id].iloc[0]
-                
-                # 버전과 run_id가 문자열인지 확인
                 version = str(selected_model['version'])
-                run_id = str(selected_model['run_id'])
+                
+                print(f"\nDebug: Changing model state")
+                print(f"Debug: Selected model version: {version}")
+                print(f"Debug: New state: {new_stage}")
                 
                 if new_stage == 'champion':
-                    model_manager.promote_to_production(
-                        model_name,
-                        version
-                    )
-                elif new_stage == 'archived':
-                    model_manager.archive_model(
-                        model_name,
-                        version
-                    )
+                    model_manager.promote_to_production(model_name, version)
                 elif new_stage == 'candidate':
-                    model_manager.promote_to_staging(
-                        model_name,
-                        run_id
-                    )
+                    model_manager.promote_to_staging(model_name, selected_model['run_id'])
+                elif new_stage == 'archived':
+                    model_manager.archive_model(model_name, version)
                 
+                # 상태 변경 후 강제 새로고침
                 st.success(f"모델 상태가 {stage_map[new_stage]}(으)로 변경되었습니다.")
-                time.sleep(2)
-                st.rerun()
+                time.sleep(1)  # UI 업데이트를 위한 짧은 대기
+                st.experimental_rerun()
                 
             except Exception as e:
                 st.error(f"상태 변경 중 오류가 발생했습니다: {str(e)}")
+                print(f"Error details: {str(e)}")
                 import traceback
                 traceback.print_exc()
 
@@ -277,18 +273,14 @@ def main():
     config = Config()
     model_manager = MLflowModelManager(config)
     
-    # 모델 정보 가져오기
+    # 모델 정보 새로 로딩
     model_infos = model_manager.load_model_info()
     
-    if not model_infos:
-        st.error("등록된 모델이 없습니다. 먼저 모델을 학습해주세요.")
-        return
-    
-    # 모델 선택 (Production 모델이 없어도 동작)
+    # 캐시 무시하고 현재 상태 가져오기
     selected_model_info = model_manager.load_production_model_info()
     if not selected_model_info:
         st.warning("운영 중인 모델이 없습니다. 최신 모델을 사용합니다.")
-        selected_model_info = model_infos[-1]  # 최신 모델 사용
+        selected_model_info = model_infos[-1]
     
     # 탭 생성
     tab_predict, tab_history, tab_manage = st.tabs(["예측", "히스토리", "모델 관리"])

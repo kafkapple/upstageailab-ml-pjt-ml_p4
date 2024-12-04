@@ -178,7 +178,7 @@ class MLflowModelManager:
         
     def register_model(self, model_name: str, run_id: str, model_uri: str = 'model') -> ModelVersion:
         """MLflow에 모델을 등록하고 버전 정보를 반환"""
-        # MLflow에 모델 등록
+        # MLflow에 델 등록
         model_uri = f"runs:/{run_id}/{model_uri}"
         try:
             model_version = mlflow.register_model(model_uri, model_name)
@@ -198,24 +198,21 @@ class MLflowModelManager:
             print(f"Debug: Model name: {model_name}")
             print(f"Debug: Run ID: {run_id}")
             
-            # 모든 버전 정보 출력
+            # 1. 먼저 모델 등록 (없는 경우)
             versions = self.client.search_model_versions(f"name='{model_name}'")
-            print("\nDebug: All model versions:")
-            for v in versions:
-                print(f"Version: {v.version}, Run ID: {v.run_id}")
-            
-            # 해당 run_id의 버전 찾기
             model_version = next(
                 (v for v in versions if v.run_id == run_id), 
                 None
             )
             
             if not model_version:
-                print(f"\nDebug: No version found for run_id {run_id}")
-                print("Debug: Available run IDs:", [v.run_id for v in versions])
-                raise ValueError(f"No model version found for run_id: {run_id}")
-            
-            print(f"Debug: Found model version: {model_version.version}")
+                print(f"Debug: Registering new model version for run_id: {run_id}")
+                # MLflow에 모델 등록
+                full_uri = f"runs:/{run_id}/{model_uri}"
+                model_version = mlflow.register_model(full_uri, model_name)
+                print(f"Debug: Registered as version: {model_version.version}")
+            else:
+                print(f"Debug: Found existing version: {model_version.version}")
             
             # 2. 기존 alias 제거
             try:
@@ -248,39 +245,15 @@ class MLflowModelManager:
             
         except Exception as e:
             print(f"Error promoting model to staging: {str(e)}")
+            import traceback
+            traceback.print_exc()
             raise
     
     def promote_to_production(self, model_name: str, version: str) -> None:
         """모델을 Champion으로 승격"""
         try:
             print(f"\n=== Debug: Promoting model to Champion ===")
-            print(f"Debug: Model name: {model_name}")
-            print(f"Debug: Version: {version}")
-            
-            # 1. 기존 alias 제거
-            try:
-                current_champion = self.client.get_model_version_by_alias(
-                    name=model_name,
-                    alias=ModelAlias.PRODUCTION.value
-                )
-                if current_champion:
-                    self.client.delete_registered_model_alias(
-                        name=model_name,
-                        alias=ModelAlias.PRODUCTION.value
-                    )
-            except Exception as e:
-                print(f"Debug: No current champion found: {str(e)}")
-            
-            # 2. 새로운 champion 설정
-            self.client.set_registered_model_alias(
-                name=model_name,
-                alias=ModelAlias.PRODUCTION.value,
-                version=version
-            )
-            
-            # 3. 동기화
-            self.sync_model_info()
-            
+            self._set_model_alias(model_name, version, ModelAlias.PRODUCTION.value)
         except Exception as e:
             print(f"Error promoting model to champion: {str(e)}")
             raise
@@ -289,41 +262,7 @@ class MLflowModelManager:
         """모델을 Archive 단계로 이동"""
         try:
             print(f"\n=== Debug: Archiving model ===")
-            print(f"Debug: Model name: {model_name}")
-            print(f"Debug: Version: {version}")
-            
-            # 1. 기존 alias 제거
-            try:
-                # 현재 모델의 alias 확인 및 제거
-                for alias in [ModelAlias.PRODUCTION.value, ModelAlias.STAGING.value]:
-                    try:
-                        current = self.client.get_model_version_by_alias(
-                            name=model_name,
-                            alias=alias
-                        )
-                        if current and current.version == version:
-                            print(f"Debug: Removing {alias} alias from version: {version}")
-                            self.client.delete_registered_model_alias(
-                                name=model_name,
-                                alias=alias
-                            )
-                    except: pass
-            except Exception as e:
-                print(f"Debug: Error removing aliases: {str(e)}")
-            
-            # 2. Archive alias 설정
-            print(f"Debug: Setting archive alias for version: {version}")
-            self.client.set_registered_model_alias(
-                name=model_name,
-                alias=ModelAlias.ARCHIVED.value,
-                version=version
-            )
-            
-            # 3. 동기화
-            self.sync_model_info()
-            
-            print(f"Debug: Model {model_name} version {version} archived")
-            
+            self._set_model_alias(model_name, version, ModelAlias.ARCHIVED.value)
         except Exception as e:
             print(f"Error archiving model: {str(e)}")
             raise
@@ -796,42 +735,83 @@ class MLflowModelManager:
     def sync_model_info(self):
         """MLflow alias와 JSON 파일의 stage 정보 동기화"""
         try:
+            print("\nDebug: Syncing model info...")
             model_infos = self.load_model_info()
             model_name = self.config.project['model_name']
             
-            # MLflow에서 각 alias의 버전 확인
-            champion_version = None
-            candidate_version = None
+            # MLflow에서 모든 버전 정보 가져오기
+            versions = self.client.search_model_versions(f"name='{model_name}'")
+            print(f"Debug: Found {len(versions)} model versions")
             
-            try:
-                champion = self.client.get_model_version_by_alias(model_name, ModelAlias.PRODUCTION.value)
-                if champion:
-                    champion_version = champion.version
-            except: pass
-            
-            try:
-                candidate = self.client.get_model_version_by_alias(model_name, ModelAlias.STAGING.value)
-                if candidate:
-                    candidate_version = candidate.version
-            except: pass
+            # 현재 alias 상태 확인
+            alias_map = {}
+            for alias in [ModelAlias.PRODUCTION.value, ModelAlias.STAGING.value, ModelAlias.ARCHIVED.value]:
+                try:
+                    version = self.client.get_model_version_by_alias(model_name, alias)
+                    if version:
+                        alias_map[version.version] = alias
+                        print(f"Debug: Version {version.version} has alias: {alias}")
+                except Exception as e:
+                    print(f"Debug: No version found for alias {alias}: {str(e)}")
             
             # JSON 파일 업데이트
+            updated = False
             for info in model_infos:
-                if info['version'] == champion_version:
-                    info['stage'] = ModelAlias.PRODUCTION.value
-                elif info['version'] == candidate_version:
-                    info['stage'] = ModelAlias.STAGING.value
-                else:
-                    info['stage'] = ModelAlias.NONE.value
+                current_stage = info.get('stage')
+                new_stage = alias_map.get(info['version'], ModelAlias.NONE.value)
+                
+                if current_stage != new_stage:
+                    print(f"Debug: Updating version {info['version']} stage from {current_stage} to {new_stage}")
+                    info['stage'] = new_stage
+                    updated = True
             
-            # 저장
-            with open(self.model_info_path, 'w', encoding='utf-8') as f:
-                json.dump(model_infos, f, indent=2, ensure_ascii=False)
+            if updated:
+                # 저장
+                with open(self.model_info_path, 'w', encoding='utf-8') as f:
+                    json.dump(model_infos, f, indent=2, ensure_ascii=False)
+                print("Debug: Model info file updated")
+                
+                # UI 새로고침을 위한 플래그 설정
+                if 'st' in sys.modules:
+                    import streamlit as st
+                    st.session_state.model_state_changed = True
+                    print("Debug: Set UI refresh flag")
             
             print("Model info synchronized with MLflow aliases")
             
         except Exception as e:
             print(f"Error synchronizing model info: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    def _set_model_alias(self, model_name: str, version: str, new_alias: str):
+        """모델 alias 설정 (다른 alias 제거)"""
+        try:
+            print(f"\nDebug: Setting alias {new_alias} for version {version}")
+            
+            # 1. 해당 버전의 현재 alias 확인 및 제거
+            for alias in [a.value for a in ModelAlias]:
+                try:
+                    current = self.client.get_model_version_by_alias(model_name, alias)
+                    if current and current.version == version:
+                        print(f"Debug: Removing existing alias {alias} from version {version}")
+                        self.client.delete_registered_model_alias(model_name, alias)
+                except: pass
+            
+            # 2. 새로운 alias 설정
+            self.client.set_registered_model_alias(
+                name=model_name,
+                alias=new_alias,
+                version=version
+            )
+            print(f"Debug: Set new alias {new_alias} for version {version}")
+            
+            # 3. 동기화
+            self.sync_model_info()
+            
+        except Exception as e:
+            print(f"Error setting model alias: {str(e)}")
+            raise
 
 class ModelInference:
     def __init__(self, config):

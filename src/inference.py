@@ -368,10 +368,10 @@ def main():
 if __name__ == "__main__":
     # Config 초기화
     main()
-    # model manage
-    # config = Config()
+  #  model manage
+    config = Config()
     
-    # # MLflow 모델 관리 초기화
-    # model_manager = MLflowModelManager(config)
-    # model_manager.manage_model(config.project['model_name'])
+    # MLflow 모델 관리 초기화
+    model_manager = MLflowModelManager(config)
+    model_manager.manage_model(config.project['model_name'])
     
