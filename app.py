@@ -242,7 +242,7 @@ def display_model_management(model_manager, model_name: str):
                 # 상태 변경 후 강제 새로고침
                 st.success(f"모델 상태가 {stage_map[new_stage]}(으)로 변경되었습니다.")
                 time.sleep(1)  # UI 업데이트를 위한 짧은 대기
-                st.experimental_rerun()
+                st.rerun()
                 
             except Exception as e:
                 st.error(f"상태 변경 중 오류가 발생했습니다: {str(e)}")
