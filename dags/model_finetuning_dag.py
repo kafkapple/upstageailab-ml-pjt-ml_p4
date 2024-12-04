@@ -18,7 +18,7 @@ sys.path.append("/usr/local/ml4")
 
 from src.config import Config
 from src.utils.mlflow_utils import MLflowModelManager
-from src.utils.inferencer import ModelInferencer
+from src.inference import ModelInferencer
 from src.train import train_model
 from transformers import AutoTokenizer
 

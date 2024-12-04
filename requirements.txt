@@ -24,3 +24,7 @@ tensorboardX
 
 streamlit
 seaborn
+plotly
+
+slack-sdk
+python-dotenv
