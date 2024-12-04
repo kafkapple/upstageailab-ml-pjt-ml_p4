@@ -112,8 +112,8 @@ class SentimentTrainer:
             # 평가
             metrics = self._evaluate_model(model, tokenizer, data_module)
             
-            # 모델 저장 및 등록
-            if metrics['f1'] > self.config.mlflow.model_registry_metric_threshold:
+            # 모델 저장 및 등록 - val_f1 사용
+            if metrics['val_f1'] > self.config.mlflow.model_registry_metric_threshold:
                 self._save_model(run, model, metrics)
             
             # 임시 파일 정리
@@ -200,27 +200,42 @@ class SentimentTrainer:
         print("\n=== Validation Results ===")
         print(f"Validation Accuracy: {metrics['accuracy']:.4f}")
         print(f"Validation F1 Score: {metrics['f1']:.4f}")
+        print(f"Validation Precision: {metrics['precision']:.4f}")
+        print(f"Validation Recall: {metrics['recall']:.4f}")
         
-        mlflow.log_metrics({
+        # 메트릭 이름을 일관되게 'val_' 접두사 사용
+        mlflow_metrics = {
             "val_accuracy": metrics['accuracy'],
-            "val_f1": metrics['f1']
-        })
+            "val_f1": metrics['f1'],
+            "val_precision": metrics['precision'],
+            "val_recall": metrics['recall']
+        }
         
-        return metrics
+        # MLflow에 메트릭 로깅
+        mlflow.log_metrics(mlflow_metrics)
+        
+        # 반환할 때도 'val_' 접두사 포함하여 반환
+        return {
+            'val_accuracy': metrics['accuracy'],
+            'val_f1': metrics['f1'],
+            'val_precision': metrics['precision'],
+            'val_recall': metrics['recall']
+        }
         
     def _save_model(self, run, model, metrics):
         """모델 저장 및 MLflow에 등록"""
         try:
-            model_path = Path("mlruns") / run.info.experiment_id / run.info.run_id / "artifacts/model"
-            model_path.mkdir(parents=True, exist_ok=True)
+            # MLflow 아티팩트 경로 설정
+            artifact_path = "model"
             
-            # MLflow 포맷으로 저장
-            mlflow.pytorch.save_model(pytorch_model=model, path=str(model_path))
+            # MLflow에 모델 저장
+            mlflow.pytorch.log_model(
+                pytorch_model=model,
+                artifact_path=artifact_path,
+                registered_model_name=self.config.project['model_name']
+            )
             
-            # 커스텀 포맷으로 저장
-            torch.save(model.state_dict(), model_path / "model.pt")
-            
-            # 설정 저장
+            # 모델 설정 저장
             model_config = {
                 "model_type": self.config.project['model_name'],
                 "pretrained_model": self.config.model_config['pretrained_model'],
@@ -231,31 +246,70 @@ class SentimentTrainer:
                 "epochs": self.config.training_config['epochs'],
                 "random_state": self.config.project['random_state'],
                 "dataset_name": self.config.project['dataset_name'],
-                "sampling_rate": self.config.data['sampling_rate'],
-                "test_size": self.config.data['test_size'],
-                "train_data_path": self.config.data['train_data_path'],
-                "val_data_path": self.config.data['val_data_path'],
-                "column_mapping": self.config.data['column_mapping']
+                "sampling_rate": self.config.data['sampling_rate']
             }
             
-            with open(model_path / "config.json", 'w', encoding='utf-8') as f:
+            # 데이터셋 정보 저장
+            dataset_info = {
+                "dataset_name": self.config.project['dataset_name'],
+                "sampling_rate": self.config.data['sampling_rate'],
+                "test_size": self.config.data['test_size'],
+                "train_data_path": str(self.config.data['train_data_path']),
+                "val_data_path": str(self.config.data['val_data_path']),
+                "column_mapping": self.config.data['column_mapping'],
+                "max_length": self.config.training_config['max_length']
+            }
+            
+            # MLflow에 파라미터로 데이터셋 정보 로깅
+            mlflow.log_params({
+                "dataset_name": dataset_info["dataset_name"],
+                "sampling_rate": dataset_info["sampling_rate"],
+                "test_size": dataset_info["test_size"],
+                "max_length": dataset_info["max_length"]
+            })
+            
+            # 설정 파일들 저장 - 플랫폼 독립적인 경로 처리
+            artifact_uri = Path(mlflow.get_artifact_uri(artifact_path))
+            config_path = artifact_uri.joinpath("config.json")
+            dataset_path = artifact_uri.joinpath("dataset_info.json")
+            
+            # 부모 디렉토리 생성
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # 파일 저장
+            with open(str(config_path), 'w', encoding='utf-8') as f:
                 json.dump(model_config, f, indent=2, ensure_ascii=False)
+                
+            with open(str(dataset_path), 'w', encoding='utf-8') as f:
+                json.dump(dataset_info, f, indent=2, ensure_ascii=False)
             
-            # MLflow에 아티팩트 등록
-            mlflow.log_param("model_path", str(model_path))
-            mlflow.log_artifact(str(model_path / "model.pt"))
-            mlflow.log_artifact(str(model_path / "config.json"))
+            # MLflow에 아티팩트 등록 - 문자열로 변환 시 str() 사용
+            mlflow.log_artifact(str(config_path), artifact_path)
+            mlflow.log_artifact(str(dataset_path), artifact_path)
             
-            # 모델 레지스트리에 등록
-            model_manager = MLflowModelManager(self.config)
-            model_version = model_manager.register_model(self.config.project['model_name'], run.info.run_id)
-            model_manager.save_model_info(
-                run_id=run.info.run_id,
-                metrics={"val_f1": metrics['f1']},
-                params=self.config.get_model_kwargs(),
-                version=model_version.version
-            )
-            
+            # 모델 레지스트리에 등록 - metrics에서 val_f1 확인
+            if metrics.get('val_f1', 0.0) > self.config.mlflow.model_registry_metric_threshold:
+                model_manager = MLflowModelManager(self.config)
+                model_version = model_manager.register_model(
+                    model_name=self.config.project['model_name'],
+                    run_id=run.info.run_id,
+                    model_uri=artifact_path
+                )
+                
+                # 모델을 Production으로 승격
+                model_manager.promote_to_production(
+                    model_name=self.config.project['model_name'],
+                    version=model_version.version
+                )
+                
+                # 모델 정보 저장 (데이터셋 정보 포함)
+                model_manager.save_model_info(
+                    run_id=run.info.run_id,
+                    metrics={"val_f1": metrics['val_f1']},  # val_f1 사용
+                    params={**model_config, **dataset_info},
+                    version=model_version.version
+                )
+                
         except Exception as e:
             print(f"Error during model saving: {str(e)}")
             import traceback

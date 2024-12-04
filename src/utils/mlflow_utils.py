@@ -12,12 +12,12 @@ from mlflow.tracking import MlflowClient
 from mlflow.entities.model_registry import ModelVersion
 from src.config import Config
 
-class ModelStage(Enum):
-    """모델 스테이지 정의"""
-    NONE = "None"
-    STAGING = "Staging"
-    PRODUCTION = "Production"
-    ARCHIVED = "Archived"
+class ModelAlias(Enum):
+    """모델 별칭 정의"""
+    NONE = "latest"
+    STAGING = "candidate"
+    PRODUCTION = "champion"
+    ARCHIVED = "archived"
 
 def cleanup_old_runs(config, days_to_keep=7):
     """오래된 MLflow 실행 정리"""
@@ -148,28 +148,27 @@ class MLflowModelManager:
             raise
     
     def promote_to_staging(self, model_name: str, run_id: str, model_uri: str = 'model') -> ModelVersion:
-        """모델을 Staging 단계로 승격"""
+        """모델을 Staging(candidate) 단계로 승격"""
         try:
             model_version = self.register_model(model_name, run_id, model_uri)
             
-            # 모델을 Staging으로 변경
-            self.client.transition_model_version_stage(
+            # alias 설정 ('candidate')
+            self.client.set_registered_model_alias(
                 name=model_name,
-                version=model_version.version,
-                stage="Staging"
+                alias=ModelAlias.STAGING.value,
+                version=model_version.version
             )
             
             # model_registry.json 업데이트
             model_infos = self.load_model_info()
             for model_info in model_infos:
                 if model_info.get('run_id') == run_id:
-                    model_info['stage'] = "Staging"
+                    model_info['stage'] = ModelAlias.STAGING.value
                     
-            # 변경된 정보 저장
             with open(self.model_info_path, 'w', encoding='utf-8') as f:
                 json.dump(model_infos, f, indent=2, ensure_ascii=False)
             
-            print(f"Model: {model_name}, version: {model_version.version} promoted to Staging")
+            print(f"Model: {model_name}, version: {model_version.version} promoted to {ModelAlias.STAGING.value}")
             return model_version
             
         except Exception as e:
@@ -177,78 +176,97 @@ class MLflowModelManager:
             raise
     
     def promote_to_production(self, model_name: str, version: str) -> None:
-        """모델을 Production 단계로 승격"""
+        """모델을 Production(champion) 단계로 승격"""
         try:
-            print(f"\nPromoting model {model_name} version {version} to Production")
+            print(f"\nPromoting model {model_name} version {version} to {ModelAlias.PRODUCTION.value}")
             
-            # MLflow에서 모델 상태 변경
-            client = self.client
-            client.transition_model_version_stage(
+            # 기존 champion 모델을 archived로 이동
+            try:
+                current_champion = self.client.get_model_version_by_alias(
+                    name=model_name,
+                    alias=ModelAlias.PRODUCTION.value
+                )
+                if current_champion:
+                    self.client.set_registered_model_alias(
+                        name=model_name,
+                        alias=ModelAlias.ARCHIVED.value,
+                        version=current_champion.version
+                    )
+            except Exception:
+                pass  # 기존 champion이 없는 경우
+            
+            # 새로운 champion 설정
+            self.client.set_registered_model_alias(
                 name=model_name,
-                version=version,
-                stage="Production"
+                alias=ModelAlias.PRODUCTION.value,
+                version=version
             )
-            print(f"MLflow model stage updated to Production")
             
             # model_registry.json 업데이트
             model_infos = self.load_model_info()
-            print(f"Current model infos: {json.dumps(model_infos, indent=2)}")
             
             # 기존 Production 모델들을 Archived로 변경
             for model_info in model_infos:
-                if model_info['stage'] == "Production" and model_info['version'] != version:
-                    model_info['stage'] = "Archived"
-                    print(f"Archived previous production model: version {model_info['version']}")
+                if model_info['stage'] == ModelAlias.PRODUCTION.value:
+                    model_info['stage'] = ModelAlias.ARCHIVED.value
             
             # 선택된 모델을 Production으로 변경
             for model_info in model_infos:
                 if model_info['version'] == version:
-                    model_info['stage'] = "Production"
-                    print(f"Updated selected model to Production: version {version}")
+                    model_info['stage'] = ModelAlias.PRODUCTION.value
                     
-            # 변경된 정보 저장
             with open(self.model_info_path, 'w', encoding='utf-8') as f:
                 json.dump(model_infos, f, indent=2, ensure_ascii=False)
-            print(f"Updated model_registry.json saved")
             
-            print(f"Model {model_name} version {version} successfully promoted to Production")
+            print(f"Model {model_name} version {version} successfully promoted to {ModelAlias.PRODUCTION.value}")
             
         except Exception as e:
             print(f"Error promoting model to production: {str(e)}")
-            import traceback
-            traceback.print_exc()
             raise
     
     def archive_model(self, model_name: str, version: str) -> None:
         """모델을 Archive 단계로 이동"""
         try:
-            # MLflow에서 모델 상태 변경
-            self.client.transition_model_version_stage(
+            # alias 설정
+            self.client.set_registered_model_alias(
                 name=model_name,
-                version=version,
-                stage="Archived"
+                alias=ModelAlias.ARCHIVED.value,
+                version=version
             )
             
             # model_registry.json 업데이트
             model_infos = self.load_model_info()
             for model_info in model_infos:
                 if model_info.get('version') == version:
-                    model_info['stage'] = "Archived"
+                    model_info['stage'] = ModelAlias.ARCHIVED.value
                     
-            # 변경된 정보 저장
             with open(self.model_info_path, 'w', encoding='utf-8') as f:
                 json.dump(model_infos, f, indent=2, ensure_ascii=False)
             
-            print(f"Model: {model_name}, version: {version} Archived")
+            print(f"Model: {model_name}, version: {version} {ModelAlias.ARCHIVED.value}")
             
         except Exception as e:
             print(f"Error archiving model: {str(e)}")
             raise
     
-    def get_latest_versions(self, model_name: str, stages: Optional[List[str]] = None) -> List[ModelVersion]:
-        """특정 스테이지의 최신 모델 버전들을 조회"""
+    def get_latest_versions(self, model_name: str, aliases: Optional[List[str]] = None) -> List[ModelVersion]:
+        """특정 alias의 최신 모델 버전들을 조회"""
         try:
-            return self.client.get_latest_versions(model_name, stages)
+            if aliases is None:
+                aliases = [alias.value for alias in ModelAlias]
+            
+            versions = []
+            for alias in aliases:
+                try:
+                    version = self.client.get_model_version_by_alias(
+                        name=model_name,
+                        alias=alias
+                    )
+                    if version:
+                        versions.append(version)
+                except Exception:
+                    continue
+            return versions
         except Exception as e:
             print(f"Error getting latest versions: {str(e)}")
             return []
@@ -271,7 +289,7 @@ class MLflowModelManager:
                 "run_name": f"{self.config.project['model_name']}_{self.config.project['dataset_name']}",
                 "metrics": metrics,
                 "params": serializable_params,
-                "stage": "Staging",
+                "stage": ModelAlias.STAGING.value,
                 "version": version,
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
@@ -547,12 +565,14 @@ class MLflowModelManager:
             return None
     
     def check_production_model_exists(self, model_name: str) -> bool:
-        """Production 단계의 모델이 존재하는지 확인"""
+        """Production(champion) 단계의 모델이 존재하는지 확인"""
         try:
-            versions = self.client.get_latest_versions(model_name, stages=["Production"])
-            return len(versions) > 0
-        except Exception as e:
-            print(f"Error checking production model: {str(e)}")
+            version = self.client.get_model_version_by_alias(
+                name=model_name,
+                alias=ModelAlias.PRODUCTION.value
+            )
+            return version is not None
+        except Exception:
             return False
     
     def get_latest_model_info(self) -> Optional[Dict]:
@@ -570,7 +590,7 @@ class MLflowModelManager:
             model_infos = self.load_model_info()
             production_models = [
                 info for info in model_infos 
-                if info.get('stage') == "Production"
+                if info.get('stage') == ModelAlias.PRODUCTION.value
             ]
             return production_models
         except Exception as e:

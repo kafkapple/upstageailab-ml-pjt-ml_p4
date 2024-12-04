@@ -37,7 +37,7 @@ class SentimentPredictor:
     def __init__(
         self,
         model_name: Optional[str] = None,
-        stage: str = "Production",
+        alias: str = "champion",
         config_path: str = "config/config.yaml",
         device: Optional[str] = None
     ):
@@ -45,7 +45,7 @@ class SentimentPredictor:
         
         Args:
             model_name: 사용할 모델 이름 (None일 경우 가장 최신 모델 사용)
-            stage: 모델 스테이지 ("Production" 또는 "Staging")
+            alias: 모델 별칭 ("champion", "candidate", "latest" 중 하나)
             config_path: 설정 파일 경로
             device: 실행 디바이스 (None일 경우 자동 감지)
         """
@@ -57,42 +57,53 @@ class SentimentPredictor:
         self.model_manager = MLflowModelManager(self.config)
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        # 모델 경로 가져오기
-        model_path = self.model_manager.get_production_model_path(model_name or self.config.project['model_name'])
-        if not model_path:
-            raise ValueError("Production model not found")
+        # 모델 경로 가져오기 - alias 기반으로 수정
+        try:
+            model_version = self.model_manager.client.get_model_version_by_alias(
+                name=model_name or self.config.project['model_name'],
+                alias=alias
+            )
+            if not model_version:
+                raise ValueError(f"No model found with alias: {alias}")
+                
+            model_path = Path(model_version.source)
+            if not model_path.exists():
+                raise ValueError(f"Model path not found: {model_path}")
+                
+            print(f"Loading model from: {model_path}")
             
-        print(f"Loading model from: {model_path}")
-        
-        # config.json 로드
-        with open(model_path / "config.json", 'r', encoding='utf-8') as f:
-            self.model_config = json.load(f)
+            # config.json 로드
+            with open(model_path / "config.json", 'r', encoding='utf-8') as f:
+                self.model_config = json.load(f)
+                
+            # 모델 타입에 따른 클래스 선택
+            model_class, tokenizer_class = self._get_model_class(self.model_config['pretrained_model'])
             
-        # 모델 타입에 따른 클래스 선택
-        model_class, tokenizer_class = self._get_model_class(self.model_config['pretrained_model'])
-        
-        # 토크나이저 로드
-        self.tokenizer = tokenizer_class.from_pretrained(self.model_config['pretrained_model'])
-        
-        # 모델 로드
-        self.model = model_class.from_pretrained(
-            self.model_config['pretrained_model'],
-            num_labels=self.model_config['num_labels']
-        )
-        
-        # 학습된 가중치 로드
-        self.model.load_state_dict(
-            torch.load(model_path / "model.pt", map_location=self.device),
-            strict=False
-        )
-        
-        # 최대 시퀀스 길이 설정
-        self.max_length = self.model_config.get('max_length', 512)
-        
-        # 모델을 지정된 디바이스로 이동
-        self.model.to(self.device)
-        self.model.eval()
-        
+            # 토크나이저 로드
+            self.tokenizer = tokenizer_class.from_pretrained(self.model_config['pretrained_model'])
+            
+            # 모델 로드
+            self.model = model_class.from_pretrained(
+                self.model_config['pretrained_model'],
+                num_labels=self.model_config['num_labels']
+            )
+            
+            # 학습된 가중치 로드
+            self.model.load_state_dict(
+                torch.load(model_path / "model.pt", map_location=self.device),
+                strict=False
+            )
+            
+            # 최대 시퀀스 길이 설정
+            self.max_length = self.model_config.get('max_length', 512)
+            
+            # 모델을 지정된 디바이스로 이동
+            self.model.to(self.device)
+            self.model.eval()
+            
+        except Exception as e:
+            print(f"Error during model loading: {str(e)}")
+            
     def _load_model_info(
         self,
         model_name: Optional[str],
@@ -273,20 +284,16 @@ class SentimentPredictor:
     
 
 def main():
-    # 예측기 초기화
-    # predictor =SentimentPredictor(None,stage="Production") # 특정 모델을 지정하거나, None으로 설정하여 최신 모델 사용
-    # predictor.predict(text)
-
     try:
-        # Production 모델 로드
-        predictor = SentimentPredictor() # default: Production (최신 모델)
+        # champion(Production) 모델 로드
+        predictor = SentimentPredictor(alias="champion")  # "Production" 대신 "champion" 사용
         
         # 단일 텍스트 예측
         text = "정말 재미있는 영화였어요!"
         print(f"\n==== Prediction ====\nText: {text}\n")
         result = predictor.predict(text)
         print_results([result])
-
+        
         # 배치 예측 & 확률값 포함
         texts = ["다시 보고 싶은 영화", "별로에요"]
         print(f"\n==== Batch Prediction ====\nTexts: {texts}\n")
