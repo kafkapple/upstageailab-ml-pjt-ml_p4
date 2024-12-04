@@ -12,11 +12,9 @@ project_root/
 │   │   └── config.py             # Configuration management
 │   ├── models/
 │   │   ├── __init__.py
-│   │   └── base_model.py         # Model architecture definitions
 │   │   └── kcbert_model.py       # KcBERT Model architecture definitions
 │   ├── utils/
 │   │   ├── __init__.py
-│   │   ├── visualization.py
 │   │   └── mlflow_utils.py      # MLflow integration utilities
 │   └── data/
 │       ├── __init__.py
@@ -27,6 +25,7 @@ project_root/
 ├── configs/
 │   ├── config.yaml          # Configuration files
 │   └── model_registry.json  # Model registry files
+├── mlruns/                  # mlflow metadata files folder
 ├── mlruns/                  # mlflow artifacts files folder
 ├── init-scripts/
 │   ├── init.sh              # Docker init file
