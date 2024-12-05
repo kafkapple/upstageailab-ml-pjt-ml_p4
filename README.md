@@ -26,7 +26,7 @@ project_root/
 │   ├── config.yaml          # Configuration files
 │   └── model_registry.json  # Model registry files
 ├── mlruns/                  # mlflow metadata files folder
-├── mlruns/                  # mlflow artifacts files folder
+├── mlartifacts/                  # mlflow artifacts files folder
 ├── init-scripts/
 │   ├── init.sh              # Docker init file
 ├── dags/
@@ -51,8 +51,6 @@ project_root/
  - processed/: processed data
 ### 📁 models
 - Pretrained models
-### 📁 examples
-- 모델 추론 예제 스크립트
 ### 📁 configs
 - YAML 기반 설정 파일
     - **데이터셋 종류**: 사용할 데이터셋 종류 설정 (기본값: NSMC - 네이버 영화 리뷰)
@@ -67,6 +65,12 @@ project_root/
     - `.env`: 환경 변수
     - `README.md`: 프로젝트 문서
 - JSON 기반 Model 관리 파일
+### 📁 Mlflow Folder
+아래 폴더, 프로젝트 루트에 저장 및 보관. Model Train, inference 시 사용
+- **config/model_registry.json**: 학습된 Model 메타데이터 저장
+- **mlruns/**: MLflow 메타데이터 저장
+- **mlartifacts/**: 모델과 아티팩트 저장
+ - **Project Root /mlartifacts/{run_id}/artifacts/model/data/model.pth**: 실제 모델 저장되는 위치
 
 ## 1.2 개발 환경 설정
 - Python 3.10
