@@ -6,6 +6,7 @@ import pandas as pd
 from datetime import datetime
 import plotly.graph_objects as go
 import time
+import traceback
 
 def initialize_session_state():
     """Initialize session state variables"""
@@ -132,24 +133,29 @@ def display_model_management(model_manager, model_name: str):
     """Display model management interface"""
     st.subheader("모델 관리")
     
-    # Get all model versions
+    # 모델 정보 로드
     models = model_manager.load_model_info()
-    if not models:
-        st.warning("등록된 모델이 없습니다.")
-        return
     
-    # Create DataFrame for better display
-    df = pd.DataFrame(models)
-    df['model_id'] = df.index + 1
-    
-    # Reorder columns
-    columns = [
-        'model_id', 'run_name', 'stage', 'metrics', 
-        'timestamp', 'version', 'run_id'
+    # 현재 선택된 모델 타입의 모델만 필터링
+    current_models = [
+        model for model in models 
+        if model['params']['model_name'] == model_name
     ]
-    df = df[columns]
     
-    # Format metrics column
+    # Create DataFrame for display
+    df = pd.DataFrame(current_models)
+    
+    # 고유한 model_id 생성 (run_id의 처음 8자리 사용)
+    df['model_id'] = df['run_id'].apply(lambda x: x[:8])
+    
+    # 표시할 컬럼 설정
+    display_columns = [
+        'model_id', 'run_id', 'version', 'stage', 
+        'timestamp', 'metrics', 'params'
+    ]
+    df = df[display_columns]
+    
+    # 메트릭 포맷팅
     df['metrics'] = df['metrics'].apply(
         lambda x: f"F1: {x.get('val_f1', 0):.4f}"
     )
@@ -163,35 +169,13 @@ def display_model_management(model_manager, model_name: str):
     }
     df['stage'] = df['stage'].map(stage_map)
     
-    # Add styling
-    def color_stage(val):
-        colors = {
-            '운영 중': '#99ff99',
-            '검증 중': '#ffeb99',
-            '보관됨': '#ff9999',
-            '최신': '#ffffff'
-        }
-        return f'background-color: {colors.get(val, "#ffffff")}; color: black'
+    st.dataframe(df)
     
-    styled_df = df.style.applymap(
-        color_stage,
-        subset=['stage']
-    )
-    
-    # Display models table
-    st.dataframe(
-        styled_df,
-        column_config={
-            "model_id": "모델 ID",
-            "run_name": "모델 이름",
-            "stage": "상태",
-            "metrics": "성능 지표",
-            "timestamp": "등록 시간",
-            "version": "버전",
-            "run_id": "실행 ID"
-        },
-        hide_index=True,
-        use_container_width=True
+    # 모델 선택
+    selected_model_id = st.selectbox(
+        "관리할 모델",
+        options=df['model_id'].tolist(),
+        format_func=lambda x: f"모델 {df[df['model_id'] == x].index[0] + 1} (Run ID: {df[df['model_id'] == x]['run_id'].iloc[0]})"
     )
     
     # Model management controls
@@ -201,16 +185,11 @@ def display_model_management(model_manager, model_name: str):
     col1, col2 = st.columns(2)
     
     with col1:
-        selected_model_id = st.selectbox(
-            "관리할 모델 선택",
-            options=df['model_id'].tolist(),
-            format_func=lambda x: f"Model {x}: {df[df['model_id']==x]['run_name'].iloc[0]}"
-        )
-        
         selected_model = df[df['model_id'] == selected_model_id].iloc[0]
         
         st.write("현재 정보:")
-        st.write(f"- 모델: {selected_model['run_name']}")
+        st.write(f"- 모델 타입: {model_name}")
+        st.write(f"- Run ID: {selected_model['run_id']}")
         st.write(f"- 상태: {selected_model['stage']}")
         st.write(f"- 버전: {selected_model['version']}")
     
@@ -225,28 +204,33 @@ def display_model_management(model_manager, model_name: str):
             try:
                 selected_model = df[df['model_id'] == selected_model_id].iloc[0]
                 version = str(selected_model['version'])
-                
-                print(f"\nDebug: Changing model state")
-                print(f"Debug: Selected model version: {version}")
-                print(f"Debug: New state: {new_stage}")
+                run_id = selected_model['run_id']
                 
                 if new_stage == 'champion':
-                    model_manager.promote_to_production(model_name, version)
+                    model_manager.promote_to_production(
+                        model_name=model_name, 
+                        version=version,
+                        run_id=run_id
+                    )
                 elif new_stage == 'candidate':
-                    model_manager.promote_to_staging(model_name, selected_model['run_id'])
+                    model_manager.promote_to_staging(
+                        model_name=model_name,
+                        run_id=run_id
+                    )
                 elif new_stage == 'archived':
-                    model_manager.archive_model(model_name, version)
+                    model_manager.archive_model(
+                        model_name=model_name,
+                        version=version,
+                        run_id=run_id
+                    )
                 
-                # 상태 변경 후 강제 새로고침
-                st.success(f"모델 상태가 {stage_map[new_stage]}(으)로 변경되었습니다.")
-                time.sleep(1)  # UI 업데이트를 위한 짧은 대기
-                st.rerun()
+                st.success(f"모델 상태가 {new_stage}로 변경되었습니다.")
+                time.sleep(1)  # MLflow 업데이트 대기
+                st.rerun()  # 페이지 새로고침
                 
             except Exception as e:
                 st.error(f"상태 변경 중 오류가 발생했습니다: {str(e)}")
-                print(f"Error details: {str(e)}")
-                import traceback
-                traceback.print_exc()
+                st.error(f"Error details: {traceback.format_exc()}")
 
 def main():
     # 페이지 설정
@@ -335,7 +319,7 @@ def main():
                 help="여러 줄의 텍스트를 입력할 수 있습니다."
             )
             
-            if text and st.button("분석", type="primary"):
+            if text and st.button("분", type="primary"):
                 result = predictor.predict(text, return_probs=True)
                 
                 # 결과 표시
@@ -391,7 +375,7 @@ def main():
                 "model_version": "모델 버전"
             }
             
-            # 확신도를 퍼센트로 표시
+            # 확신도를 센트로 표시
             df['confidence'] = df['confidence'].apply(lambda x: f"{x:.1%}")
             
             # 긍정/부정 확률 컬럼 추가
@@ -467,7 +451,7 @@ def main():
             
             fig.update_layout(
                 title="시간별 예측 확신도 추이",
-                xaxis_title="시간",
+                xaxis_title="시",
                 yaxis_title="확신도 (%)",
                 hovermode='x unified'
             )

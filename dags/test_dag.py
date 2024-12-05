@@ -9,10 +9,10 @@ from dotenv import load_dotenv
 
 # .env 파일 로드
 load_dotenv()
-
 # Slack 설정
 SLACK_TOKEN = os.getenv('SLACK_TOKEN')
 CHANNEL_NAME = os.getenv('CHANNEL_NAME')
+SLACK_USERNAME = os.getenv('SLACK_USERNAME')
 slack_client = WebClient(token=SLACK_TOKEN)
 
 # 감성 분석 모델 로드
