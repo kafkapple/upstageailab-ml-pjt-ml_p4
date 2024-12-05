@@ -2,8 +2,6 @@ import streamlit as st
 from src.config import Config
 from src.utils.mlflow_utils import MLflowModelManager
 from src.inference import SentimentPredictor
-from src.models.kcbert_model import KcBERT
-from src.models.kcelectra_model import KcELECTRA
 import pandas as pd
 from datetime import datetime
 import plotly.graph_objects as go
