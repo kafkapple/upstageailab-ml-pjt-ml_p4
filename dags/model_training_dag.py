@@ -1,22 +1,17 @@
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.models import Variable
 import pandas as pd
 import numpy as np
 from slack_sdk import WebClient
-import json
 import os
+from dotenv import load_dotenv
 
-# 프로젝트 루트 경로 추가
-import sys
-sys.path.append("/path/to/your/project")  # 실제 프로젝트 경로로 수정 필요
-
-from src.train import train_model
-from src.config import Config
+# .env 파일 로드
+load_dotenv()
 
 # Slack 설정
-SLACK_TOKEN = Variable.get("SLACK_TOKEN")
+SLACK_TOKEN = os.getenv("SLACK_TOKEN")
 SLACK_CHANNEL = "#model-training"  # 실제 채널명으로 수정 필요
 
 def split_dataset():
