@@ -101,7 +101,17 @@ airflow users create \
 echo -e "${YELLOW}권한 설정 중...${NC}"
 chmod -R 777 ${AIRFLOW_HOME}
 
-# 12. Airflow 서비스 시작
+# 12. Slack Webhook 설정
+echo -e "${YELLOW}Slack Webhook 설정 중...${NC}"
+if [ -f "$AIRFLOW_HOME/connections/setup_slack.sh" ]; then
+    echo "Setting up Slack Webhook connection..."
+    source $AIRFLOW_HOME/connections/setup_slack.sh
+    echo "Slack Webhook setup completed."
+else
+    echo "Slack Webhook 설정 파일을 찾을 수 없습니다."
+fi
+
+# 13. Airflow 서비스 시작
 echo -e "${YELLOW}Airflow 서비스 시작 중...${NC}"
 airflow webserver --port 8080 -D
 sleep 5
