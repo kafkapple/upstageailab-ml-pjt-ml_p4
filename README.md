@@ -181,10 +181,18 @@ python train.py
     - `config/model_info.json` 파일에서 등록된 모델의 단계(stage)를 확인.
 
 ### 2.8 Streamlit App 실행
+- linux server 에서 실행 가정. vs code 등에 가능한 포트를 {port} 에 넣어 후 아래 명령어로 실행
 ```bash
-streamlit run app.py
+streamlit run app.py --server.port {port} --server.address 0.0.0.0
 ```
-
+- 접속할 클라이언트 쪽에서는 CLI 에서 다음과 같이 실행
+```bash
+ssh -L {port}:localhost:{port} {user}@{address}
+```
+```bash
+- 아래 주소로 접속 가능
+http://localhost:{port}
+```
 ---
 
 이 가이드를 따라 프로젝트를 실행하고 모델을 학습 및 관리. 필요에 따라 `config.yaml` 파일의 설정을 조정하여 실험을 진행
