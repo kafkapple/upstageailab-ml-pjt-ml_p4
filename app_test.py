@@ -136,22 +136,19 @@ def display_model_management(model_manager, model_name: str):
     # 모델 정보 로드
     models = model_manager.load_model_info()
     
-    # 현재 선택된 모델 타입의 모델만 필터링
-    current_models = [
-        model for model in models 
-        if model['params']['model_name'] == model_name
-    ]
-    
     # Create DataFrame for display
-    df = pd.DataFrame(current_models)
+    df = pd.DataFrame(models)
     
     # 고유한 model_id 생성 (run_id의 처음 8자리 사용)
     df['model_id'] = df['run_id'].apply(lambda x: x[:8])
     
+    # 모델 타입 컬럼 추가
+    df['model_type'] = df['params'].apply(lambda x: x['model_name'])
+    
     # 표시할 컬럼 설정
     display_columns = [
-        'model_id', 'run_id', 'version', 'stage', 
-        'timestamp', 'metrics', 'params'
+        'model_id', 'model_type', 'run_id', 'version', 
+        'stage', 'timestamp', 'metrics'
     ]
     df = df[display_columns]
     
@@ -169,13 +166,27 @@ def display_model_management(model_manager, model_name: str):
     }
     df['stage'] = df['stage'].map(stage_map)
     
+    # 전체 모델 목록 표시
+    st.write("전체 모델 목록:")
     st.dataframe(df)
+    
+    # 현재 선택된 모델 타입의 모델만 필터링
+    current_models_df = df[df['model_type'] == model_name].copy()
+    
+    if current_models_df.empty:
+        st.warning(f"현재 {model_name} 타입의 모델이 없습니다.")
+        return
+    
+    st.write(f"\n현재 선택된 모델 타입 ({model_name}):")
     
     # 모델 선택
     selected_model_id = st.selectbox(
         "관리할 모델",
-        options=df['model_id'].tolist(),
-        format_func=lambda x: f"모델 {df[df['model_id'] == x].index[0] + 1} (Run ID: {df[df['model_id'] == x]['run_id'].iloc[0]})"
+        options=current_models_df['model_id'].tolist(),
+        format_func=lambda x: (
+            f"모델 {current_models_df[current_models_df['model_id'] == x].index[0] + 1} "
+            f"(Run ID: {current_models_df[current_models_df['model_id'] == x]['run_id'].iloc[0]})"
+        )
     )
     
     # Model management controls
@@ -185,10 +196,10 @@ def display_model_management(model_manager, model_name: str):
     col1, col2 = st.columns(2)
     
     with col1:
-        selected_model = df[df['model_id'] == selected_model_id].iloc[0]
+        selected_model = current_models_df[current_models_df['model_id'] == selected_model_id].iloc[0]
         
         st.write("현재 정보:")
-        st.write(f"- 모델 타입: {model_name}")
+        st.write(f"- 모델 타입: {selected_model['model_type']}")
         st.write(f"- Run ID: {selected_model['run_id']}")
         st.write(f"- 상태: {selected_model['stage']}")
         st.write(f"- 버전: {selected_model['version']}")
@@ -330,7 +341,7 @@ def main():
                     st.metric("확신도", f"{result['confidence']:.1%}")
                 
                 with col2:
-                    # 확률 분포 그래프
+                    # 확률 분포 ���래프
                     fig = go.Figure(go.Bar(
                         x=['부정', '긍정'],
                         y=[result['probs']['부정'], result['probs']['긍정']],
