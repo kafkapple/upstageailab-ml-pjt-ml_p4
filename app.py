@@ -24,10 +24,16 @@ logging.basicConfig(level=logging.INFO)
 #추가- 모델 성늠 향상  디바이스 설정
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-#추가 
-API_URL = "https://api-inference.huggingface.co/models/facebook/blenderbot-400M-distill"
-headers = {"Authorization": f"Bearer {st.secrets['HUGGINGFACE_TOKEN']}"}
+# #추가 
+# API_URL = "https://api-inference.huggingface.co/models/facebook/blenderbot-400M-distill"
+# headers = {"Authorization": f"Bearer {st.secrets['HUGGINGFACE_TOKEN']}"}
 
+try:
+    API_URL = "https://api-inference.huggingface.co/models/facebook/blenderbot-400M-distill"
+    headers = {"Authorization": f"Bearer {st.secrets['HUGGINGFACE_TOKEN']}"}
+except Exception as e:
+    st.error("Hugging Face API 토큰이 설정되지 않았습니다. Streamlit Cloud의 Settings에서 'HUGGINGFACE_TOKEN'을 설정해주세요.")
+    headers = {"Authorization": "Bearer "}
 
 
 #Part 2/4 - 유틸리티 함수들:
