@@ -11,6 +11,21 @@
 
 ---
 
+### 1.2 Team ML 4 멤버 및 협업
+
+- **박정준**:
+    - **AI Engineer**
+        - **:** NLP 모델 개발, 모델 관리 파이프라인 (MLflow)
+- **김동완**:
+    - **Data Engineer**
+        - : Data management & scraping 데이터 수집 및 관리
+- **김묘정**
+    - **Front-end Engineer, QA**
+        - : 프론트엔드 개발 (Streamlit), 모델 테스트
+- **이다언**:
+    - **Back-end Engineer**
+        - : Fast API
+
 ## 2. 주요 기능
 
 ### 2.1 데이터 수집
@@ -123,8 +138,17 @@ project_root/
 
 ### 4.3 MLOps
 
-- **MLflow**: 모델 버전 관리 및 실험 추적
+- **MLflow**: 모델 버전 관리
+    - 실험 및 모델 파라미터 추적
+    - MLflow Model Registry, 별도의 model_registry.json 파일 정보를 싱크, 모델 버전 관리
+    - **모델 단계**:
+        - **Candidate**: 새로 훈련된 모델
+        - **Champion**: 프로덕션 준비 완료된 모델
+        - **Archived**: 사용 중단된 모델
 - **Docker & Airflow**: 자동화 파이프라인 구축
+    - Airflow 컨테이너 자동 생성
+    - Slack webhook 연결 및 계정 자동 생성
+      - 모델 등록 알림 및 모델 테스트 결과 알림
 
 ### 4.4 모델 서빙
 
@@ -360,17 +384,33 @@ Airflow 초기 설정 시 다음 기본 계정이 자동으로 생성:
 
 - **실시간 감성 분석 서비스 구축**:
     - 한국어 텍스트의 긍정/부정 분류 모델 개발
+    - 정제되지 않은 한국어 텍스트에 대한 감성 분류에서 높은 정확도와 안정성 달성
 - **MLOps 파이프라인 구축**:
     - 모델, 데이터 관리 및 MLOps 인프라 전반 이해 및 구현
 
-### 7.2 향후 개선 방향
+### 7.2 도전 과제 및 해결 방안
+
+- **데이터셋**:
+    - **문제**: 실시간 데이터 수집 및 모델 학습의 어려움
+    - **해결**: 목표 데이터 타입과 유사한 특성을 가진 대규모 레이블 데이터셋을 이용, 기본 모델을 학습
+- **MLOps 통합**:
+    - **문제**: 모델 버전 관리 및 배포의 원활한 연계
+    - **해결**: MLflow를 활용한 실험 추적 및 모델 레지스트리 구현
+- **모델 배포**:
+    - **문제**: 실시간 추론을 위한 낮은 지연 시간 확보
+    - **해결**: FastAPI와 비동기 처리로 모델 서빙 최적화
+
+### 7.3 향후 개선 방향
 1. **Airflow 자동화 통합**: 데이터 수집 및 전처리, 모델 학습, 배포 자동화
 2. **다중 감정 분류 확장**: 중립 및 복합 감정을 추가로 예측
 3. **모델 일반화 향상**: 다양한 데이터셋 사용
 4. **프론트엔드 개선**: 사용자 경험 최적화
+5. **다중 유저 정보 관리**: 다양한 유저 정보 관리 및 모델 테스트
 
 
 ### 7.3 프레젠테이션 및 회의록
+- **Report**
+  - [Upstage AI Lab Fast-Up Report](https://www.notion.so/Fast-Up-Team-Report-1-c8476dbc79234d85b275fc532dfbbbdd?pvs=4)
 - **Presentation**
   - [Google Slide](https://docs.google.com/presentation/d/1sAIir9wP4zfGoccqjqmag-nPU-KVaJVMeQXmn8RIPck/edit?usp=sharing)
 - **Meeting Log**
@@ -379,8 +419,20 @@ Airflow 초기 설정 시 다음 기본 계정이 자동으로 생성:
 ---
 
 ## 8. 참고 자료
-
+### 8.1 데이터 수집
+- **Selenium 문서**: [Selenium](https://selenium-python.readthedocs.io/)
+- **Scrapy 문서**: [Scrapy](https://docs.scrapy.org/en/latest/)
+### 8.2 데이터셋
 - **NSMC 데이터셋**: [GitHub - e9t/nsmc](https://github.com/e9t/nsmc)
+### 8.3 모델
+- **Hugging Face**: [Hugging Face](https://huggingface.co/)
 - **Kc-BERT 모델**: [GitHub - Beomi/KcBERT](https://github.com/Beomi/KcBERT)
+- **KC-ELECTRA 모델**: [Hugging Face - beomi/KcELECTRA-base](https://huggingface.co/beomi/KcELECTRA-base)
+### 8.4 MLOps
 - **MLflow 문서**: [MLflow](https://mlflow.org/docs/latest/index.html)
+### 8.4 프론트엔드
+- **Streamlit 문서**: [Streamlit](https://docs.streamlit.io/)
+### 8.5 백엔드  
 - **FastAPI 문서**: [FastAPI](https://fastapi.tiangolo.com/)
+### 8.6 배포
+- **Airflow 문서**: [Airflow](https://airflow.apache.org/)
