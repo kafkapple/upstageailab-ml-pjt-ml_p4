@@ -10,6 +10,9 @@ from sklearn.metrics import accuracy_score
 from sklearn.datasets import load_iris
 import joblib
 import os
+import sys
+
+sys.path.append('/data/ephemeral/home/upstageailab-ml-pjt-ml_p4')
 
 os.environ['NO_PROXY'] = '*' # mac에서 airflow로 외부 요청할 때 이슈가 있음. 하여 해당 코드 추가 필요
 # https://stackoverflow.com/questions/76546457/airflow-job-unable-to-send-requests-to-the-internet
@@ -91,6 +94,17 @@ def select_best_model(**context):
 
     print(f"Best Model: {best_model} with accuracy {best_performance}")
     context['ti'].xcom_push(key='best_model', value=best_model)
+def send_slack_basic(**context):
+    """학습 시작 알림을 보내는 함수"""
+    message = "🚀 감성 분석 모델 학습을 시작합니다..."
+    
+    # SlackWebhookOperator를 직접 실행하지 않고 반환
+    return SlackWebhookOperator(
+        task_id='send_slack_start_notification',
+        webhook_conn_id='slack_webhook',
+        message=message,
+        username='ML Pipeline Bot',
+    ).execute(context=context)
 
 # 5. Slack 메시지 전송 함수
 def send_slack_notification(**context):
@@ -100,21 +114,19 @@ def send_slack_notification(**context):
     gb_performance = ti.xcom_pull(key='performance_GradientBoosting')
     svm_performance = ti.xcom_pull(key='performance_SVM')
     
-    message = (f"Best Model: *{best_model}*\n"
-               f"RandomForest Accuracy: {rf_performance}\n"
-               f"GradientBoosting Accuracy: {gb_performance}\n"
-               f"SVM Accuracy: {svm_performance}")
+    message = (f"🎯 모델 학습 결과:\n\n"
+               f"*최고 성능 모델: {best_model}*\n\n"
+               f"📊 성능 비교:\n"
+               f"• RandomForest: {rf_performance:.4f}\n"
+               f"• GradientBoosting: {gb_performance:.4f}\n"
+               f"• SVM: {svm_performance:.4f}")
     
-    slack_notification = SlackWebhookOperator(
-        task_id='send_slack_notification_task',
-        slack_webhook_conn_id="slack_webhook",
+    return SlackWebhookOperator(
+        task_id='send_slack_final_notification',
+        webhook_conn_id='slack_webhook',
         message=message,
-        username='airflow_bot',
-        dag=context['dag']
-    )
-    
-    # Slack 메시지를 실제로 전송
-    slack_notification.execute(context=context)
+        username='ML Pipeline Bot',
+    ).execute(context=context)
 
 # DAG 정의
 dag = DAG(
@@ -123,6 +135,13 @@ dag = DAG(
     description='A machine learning pipeline using multiple models on Iris dataset',
     schedule_interval='@daily',
     catchup=False
+)
+
+send_slack_basic_task = PythonOperator(
+    task_id='send_slack_basic',
+    python_callable=send_slack_basic,
+    provide_context=True,
+    dag=dag,
 )
 
 # Task 정의
@@ -197,7 +216,7 @@ slack_notification_task = PythonOperator(
 )
 
 # Task 의존성 설정
-prepare_data_task >> [train_rf_task, train_gb_task, train_svm_task]
+send_slack_basic_task >> prepare_data_task >> [train_rf_task, train_gb_task, train_svm_task]
 train_rf_task >> evaluate_rf_task
 train_gb_task >> evaluate_gb_task
 train_svm_task >> evaluate_svm_task
