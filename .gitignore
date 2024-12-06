@@ -233,3 +233,55 @@ pip-selfcheck.json
 .ionide
 
 # End of https://www.toptal.com/developers/gitignore/api/python,jupyternotebooks,visualstudiocode,venv,dotenv
+#추가 - 개인적인 파일
+
+# Secrets and Credentials
+.streamlit/secrets.toml
+config.json
+credentials.json
+*.env
+.env
+api_key.txt
+token.txt
+
+# Model files and checkpoints
+*.pkl
+*.pt
+*.pth
+*.bin
+*.ckpt
+*.h5
+model/
+models/
+checkpoints/
+weights/
+
+# MLflow related
+mlruns/
+mlartifacts/
+outputs/
+
+# Logs and cache
+logs/
+.cache/
+__pycache__/
+*.pyc
+*.log
+
+# Data files
+data/
+dataset/
+*.csv
+*.xlsx
+*.json
+*.db
+*.sqlite
+
+# IDE specific
+.vscode/
+.idea/
+*.swp
+
+# System files
+.DS_Store
+Thumbs.db
