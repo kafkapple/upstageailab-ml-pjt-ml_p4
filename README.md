@@ -9,6 +9,7 @@
     - 웹 데이터 수집부터 모델 서빙까지의 **End-to-End MLOps 파이프라인 구현**
     - 실시간 긍정/부정을 예측하는 한국어 감성 분석 시스템 개발
 
+![MLOps 아키텍쳐 플로우차트](https://github.com/UpstageAILab5/upstageailab-ml-pjt-ml_p4/blob/main/assets/images/flowchart_all.png)
 ---
 
 ### 1.2 Team ML 4 멤버 및 협업
