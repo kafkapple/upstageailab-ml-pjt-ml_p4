@@ -412,7 +412,7 @@ Airflow 초기 설정 시 다음 기본 계정이 자동으로 생성:
 - **Report**
   - [Upstage AI Lab Fast-Up Report](https://www.notion.so/Fast-Up-Team-Report-1-c8476dbc79234d85b275fc532dfbbbdd?pvs=4)
 - **Presentation**
-  - [Google Slide](https://docs.google.com/presentation/d/1sAIir9wP4zfGoccqjqmag-nPU-KVaJVMeQXmn8RIPck/edit?usp=sharing)
+  - [pdf](https://github.com/UpstageAILab5/upstageailab-ml-pjt-ml_p4/blob/main/assets/docs/%5B%ED%8C%A8%EC%8A%A4%ED%8A%B8%EC%BA%A0%ED%8D%BC%EC%8A%A4%5D-Upstage-AI-Lab-5%EA%B8%B0_%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8-ML4.pdf)
 - **Meeting Log**
   - [회고 및 미팅 로그](https://www.notion.so/a6667a35aec348a2bfbba76bfcdd6343?v=2c6a809bc92b4dd4a77247c99caba688&pvs=4)
   - [피어 세션 및 멘토링](https://www.notion.so/37086a60fda642efb175576e0887fd7c?v=e22cf0fd881a481c8b0c6dab27dfac28&pvs=4)
