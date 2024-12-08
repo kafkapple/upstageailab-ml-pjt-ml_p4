@@ -25,8 +25,8 @@
         - : Fast API
 
 ### 1.3 MLOps 아키텍쳐 플로우차트
-![MLOps 아키텍쳐 플로우차트](https://github.com/UpstageAILab5/upstageailab-ml-pjt-ml_p4/blob/main/assets/images/flowchart_all.png)
-
+![MLOps 아키텍쳐 전체 플로우차트](https://github.com/UpstageAILab5/upstageailab-ml-pjt-ml_p4/blob/main/assets/images/flowchart_all.png)
+![MLOps 아키텍쳐 플로우차트](https://github.com/UpstageAILab5/upstageailab-ml-pjt-ml_p4/blob/main/assets/images/flowchart_model.png)
 ---
 
 
@@ -415,6 +415,7 @@ Python 기반 네이버 블로그 크롤러 서비스입니다. 검색어(Query)
 1. Scrapy 명령어로 실행
    검색어(Query)를 입력하여 크롤링을 실행하고 결과를 저장합니다.
    [예시]
+   ```bash
    scrapy crawl naver_blog_spider
    scrapy crawl naver_blog_spider -a verbose=True
    scrapy crawl naver_blog_spider -a verbose=True -o output/naver_blog_crawling.csv
@@ -423,27 +424,31 @@ Python 기반 네이버 블로그 크롤러 서비스입니다. 검색어(Query)
    scrapy crawl naver_blog_spider -a verbose=True -a query=이탈리아 -a max_results=2
    scrapy crawl naver_blog_spider -a verbose=True -a query=일본,중국,베트남 -a max_results=5
    scrapy crawl naver_blog_spider -a verbose=True -a query=일본,중국,베트남 -a max_results=5 -o output/test001.csv
+   ```
    [ERROR]
    아래와 같은 경우 error가 발생합니다.
+   ```bash
    # ######################################################################
    crawl: error: running 'scrapy crawl' with more than one spider is not supported
    # ######################################################################
    scrapy crawl naver_blog_spider -a verbose=True -t csv  [crawl: error]
    scrapy crawl naver_blog_spider -a verbose=True -a query= 스위스,독일  [crawl: error]
    # ######################################################################
-
+   ```
 2. Python 코드로 실행
    crawler_service.py의 run_crawler 함수를 호출하여 실행합니다:
 
    [test_crawler.py]
+   ```bash
    from CrawlerService.crawler_service import run_crawler
-
-   # 크롤링 테스트
+   ```
+   #### 크롤링 테스트
+   ```bash
    output_filename = "naver_blog_crawling"
    result = run_crawler(query="일본 도쿄,한국 서울", verbose=True, max_results=4, output_filename=output_filename)
    print(f"크롤링 결과 저장 (CSV file): output/{output_filename}.csv")
    print(f"크롤링 결과 저장 (JSON file): output/{output_filename}.json")
-
+   ```
 ---
 
 #### 개발 및 디버깅
@@ -461,6 +466,8 @@ Python 기반 네이버 블로그 크롤러 서비스입니다. 검색어(Query)
 ##### 프로젝트 디렉토리 구조
 
 프로젝트 디렉토리 구조는 다음과 같습니다:
+
+```bash
 CrawlerService
 ├── CrawlerService
 │   ├── __init__.py
@@ -482,9 +489,14 @@ CrawlerService
 ├── test_crawler.py
 ├── .gitignore
 └── venv
+```
+
 ---
 
 ## 7. Result 주요 성과 및 개선 방향
+### 실시간 감성 분석 서비스 데모 시연
+- 감성 챗봇과 대화 분석 기능 등 추가
+![실시간 감성 분석 서비스 데모](https://github.com/UpstageAILab5/upstageailab-ml-pjt-ml_p4/blob/main/assets/images/demo.png)
 
 ### 7.1 최종 성과
 
