@@ -609,228 +609,232 @@ def main():
                 help="여러 줄의 텍스트를 입력할 수 있습니다."
             )
             
-            if text and st.button("분석", type="primary"):
-                result = predictor.predict(text, return_probs=True)
-                
-                # 상단 결과 표시 (2개 컬럼)
-                col1, col2  = st.columns(2)
-                
-                with col1:
+            # 버튼을 text_area와 독립적으로 표시
+            if st.button("분석", type="primary"):
+                if not text:  # 텍스트가 비어있는 경우
+                    st.warning("텍스트를 입력해주세요.")
+                else:
+                    result = predictor.predict(text, return_probs=True)
                     
-
-                    # # YouTube 비디오 URL
-                    # youtube_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-
-                    # # Streamlit 앱에 YouTube 비디오 임베드
-                    # st.video(youtube_url)
-                    # 감성과 이모지 표시
-                    emoji = get_sentiment_emoji(result['label'], result['confidence'])
-                    st.markdown(f"### {result['label']} {emoji}")
-                    # st.metric("확신도", f"{result['confidence']:.1%}")
+                    # 상단 결과 표시 (2개 컬럼)
+                    col1, col2  = st.columns(2)
                     
-                    # 게이지 차트
-                    # 게이지 차트
-                    gauge_fig = create_gauge_chart(
-                        result['confidence'],
-                        ""
-                    )
-                    gauge_fig.update_layout(
-                        title=dict(
-                            text="감성 지수",
-                            font=dict(size=16),  # 제목 글자 크기를 16으로 줄임
-                            y=0.9
-                        )
-                    )
-                    st.plotly_chart(gauge_fig, use_container_width=True)
-                
-                with col2:
-                    # 감정 단어 버블 차트
-                    pos_prob = result['probs']['긍정'] * 100
-                    
-                    import random
-                    import math
-                    import numpy as np
-
-                    # 확률 구간에 따른 단어 설정
-                    if pos_prob >= 90:
-                        core_word = '환희'
-                        related_words = ['행복', 'happy', '기쁨', '감동', '축복', 'joy', '희열', '감격', '황홀', '행운']
-                        color = '#2ecc71'
-                    elif pos_prob >= 70:
-                        core_word = '행복'
-                        related_words = ['즐거움', 'smile', '설렘', '만족', '기대', '희망', '좋음', '신남', '상쾌', '기분좋음']
-                        color = '#27ae60'
-                    elif pos_prob >= 50:
-                        core_word = '긍정'
-                        related_words = ['편안', '따뜻', '평화', '안정', '여유', '밝음', '맑음', '산뜻', '포근', '온화']
-                        color = '#16a085'
-                    elif pos_prob >= 30:
-                        core_word = '중립'
-                        related_words = ['보통', '일상', '평범', '무난', '담담', '차분', '잔잔', '고요', '평온', '침착']
-                        color = '#f39c12'
-                    elif pos_prob >= 10:
-                        core_word = '부정'
-                        related_words = ['걱정', '불안', 'sad', '답답', '지침', '피곤', '고민', '혼란', '불편', '우울']
-                        color = '#e67e22'
-                    else:
-                        core_word = '절망'
-                        related_words = ['분노', 'angry', '슬픔', '고통', '비통', '실망', '좌절', '상처', '괴로움', '공포']
-                        color = '#e74c3c'
-
-                    def get_random_position(radius, min_distance=0.15):
-                        """원 안에서 랜덤한 위치 생성"""
-                        for _ in range(100):  # 최대 100번 시도
-                            angle = random.uniform(0, 2 * math.pi)
-                            r = random.uniform(0.2, radius)  # 최소 거리 설정
-                            x = 0.5 + r * math.cos(angle)
-                            y = 0.5 + r * math.sin(angle)
-                            
-                            # 기존 위치들과의 거리 확인
-                            valid_position = True
-                            for pos in existing_positions:
-                                if math.sqrt((x - pos[0])**2 + (y - pos[1])**2) < min_distance:
-                                    valid_position = False
-                                    break
-                            
-                            if valid_position:
-                                existing_positions.append((x, y))
-                                return x, y
+                    with col1:
                         
-                        # 적절한 위치를 찾지 못한 경우 기본값 반환
-                        return 0.5 + radius * 0.7 * math.cos(angle), 0.5 + radius * 0.7 * math.sin(angle)
 
-                    # 감정 단어 정의
-                    emotions = []
-                    existing_positions = []
+                        # # YouTube 비디오 URL
+                        # youtube_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+                        # # Streamlit 앱에 YouTube 비디오 임베드
+                        # st.video(youtube_url)
+                        # 감성과 이모지 표시
+                        emoji = get_sentiment_emoji(result['label'], result['confidence'])
+                        st.markdown(f"### {result['label']} {emoji}")
+                        # st.metric("확신도", f"{result['confidence']:.1%}")
+                        
+                        # 게이지 차트
+                        # 게이지 차트
+                        gauge_fig = create_gauge_chart(
+                            result['confidence'],
+                            ""
+                        )
+                        gauge_fig.update_layout(
+                            title=dict(
+                                text="감성 지수",
+                                font=dict(size=16),  # 제목 글자 크기를 16으로 줄임
+                                y=0.9
+                            )
+                        )
+                        st.plotly_chart(gauge_fig, use_container_width=True)
                     
-                    # 핵심 단어는 중앙에 배치
-                    emotions.append({
-                        'word': core_word,
-                        'size': 50,
-                        'x': 0.5,
-                        'y': 0.5
-                    })
-                    existing_positions.append((0.5, 0.5))
-
-                    # 관련 단어들은 랜덤 배치
-                    radius = 0.50  # 원의 반지름을 키움
-                    for i, word in enumerate(related_words):
-                        size = 30 - (i * 1.5)  # 글자 크기 차이를 줄임
-                        x, y = get_random_position(radius)
-                        emotions.append({
-                            'word': word,
-                            'size': size,
-                            'x': x,
-                            'y': y
-                        })
-
-                    fig = go.Figure()
-
-                    # # 원형 테두리 그리기
-                    # circle_points = [
-                    #     (0.5 + radius * math.cos(theta), 0.5 + radius * math.sin(theta))
-                    #     for theta in np.linspace(0, 2*math.pi, 100)
-                    # ]
-                    
-                    # fig.add_trace(go.Scatter(
-                    #     x=[p[0] for p in circle_points],
-                    #     y=[p[1] for p in circle_points],
-                    #     mode='lines',
-                    #     line=dict(color=color, width=1),
-                    #     showlegend=False
-                    # ))
-
-                    # 감정 단어들을 텍스트로 표시
-                    for emotion in emotions:
-                        fig.add_trace(go.Scatter(
-                            x=[emotion['x']],
-                            y=[emotion['y']],
-                            mode='text',
-                            text=[emotion['word']],
-                            textfont=dict(
-                                size=emotion['size'],
-                                color=color
-                            ),
-                            showlegend=False
-                        ))
-
-                    # 레이아웃 설정
-                    fig.update_layout(
-                        title=dict(
-                            text=f"연관 감정 단어",
-                            font=dict(size=20)
-                        ),
-                        xaxis=dict(
-                            showgrid=False,
-                            zeroline=False,
-                            showticklabels=False,
-                            range=[0, 1]
-                        ),
-                        yaxis=dict(
-                            showgrid=False,
-                            zeroline=False,
-                            showticklabels=False,
-                            range=[0, 1]
-                        ),
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        height=300,
-                        margin=dict(l=20, r=20, t=40, b=20)
-                    )
-
-                    # # 확률 표시 추가
-                    # fig.add_annotation(
-                    #     text=f"{pos_prob:.1f}% {'긍정' if pos_prob > 50 else '부정'}",
-                    #     xref="paper", yref="paper",
-                    #     x=0.5, y=1.05,
-                    #     showarrow=False,
-                    #     font=dict(size=16, color=color),
-                    #     borderpad=4
-                    # )
-
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                # 구분선 추가
-                st.markdown("---")
-                
-                # 하단에 전체 너비로 표시 (col3 내용)
-                st.subheader("For you..⭐")
-                # 감성 메시지 표시
-                sentiment_score = result['probs']['긍정'] * 100
-                message_2 = get_sentiment_message(sentiment_score)
-
-                with st.container():
-                    # 먼저 메시지 표시
-                    st.markdown(f"""
-                        <div style="
-                            text-align: center;
-                            padding: 15px;
-                            background-color: #f0f2f6;
-                            border-radius: 10px;
-                            margin-bottom: 20px;
-                            font-family: 'Helvetica Neue', Arial, sans-serif;
-                            font-size: 1.1em;
-                            color: #333;
-                        ">
-                            {message_2}
-                        </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # 그 다음 YouTube 비디오 표시
-                    col1, col2, col3 = st.columns([1,2,1])
                     with col2:
-                        youtube_url = recommend_youtube_video(result['probs'])
-                        st.video(youtube_url)
-                
+                        # 감정 단어 버블 차트
+                        pos_prob = result['probs']['긍정'] * 100
+                        
+                        import random
+                        import math
+                        import numpy as np
 
-                
-                # 히스토리에 추가
-                add_to_history(
-                    text=text,
-                    result=result,
-                    model_info=selected_model_info
-                )
-                update_statistics(result['label'])
-                
+                        # 확률 구간에 따른 단어 설정
+                        if pos_prob >= 90:
+                            core_word = '환희'
+                            related_words = ['행복', 'happy', '기쁨', '감동', '축복', 'joy', '희열', '감격', '황홀', '행운']
+                            color = '#2ecc71'
+                        elif pos_prob >= 70:
+                            core_word = '행복'
+                            related_words = ['즐거움', 'smile', '설렘', '만족', '기대', '희망', '좋음', '신남', '상쾌', '기분좋음']
+                            color = '#27ae60'
+                        elif pos_prob >= 50:
+                            core_word = '긍정'
+                            related_words = ['편안', '따뜻', '평화', '안정', '여유', '밝음', '맑음', '산뜻', '포근', '온화']
+                            color = '#16a085'
+                        elif pos_prob >= 30:
+                            core_word = '중립'
+                            related_words = ['보통', '일상', '평범', '무난', '담담', '차분', '잔잔', '고요', '평온', '침착']
+                            color = '#f39c12'
+                        elif pos_prob >= 10:
+                            core_word = '부정'
+                            related_words = ['걱정', '불안', 'sad', '답답', '지침', '피곤', '고민', '혼란', '불편', '우울']
+                            color = '#e67e22'
+                        else:
+                            core_word = '절망'
+                            related_words = ['분노', 'angry', '슬픔', '고통', '비통', '실망', '좌절', '상처', '괴로움', '공포']
+                            color = '#e74c3c'
+
+                        def get_random_position(radius, min_distance=0.15):
+                            """원 안에서 랜덤한 위치 생성"""
+                            for _ in range(100):  # 최대 100번 시도
+                                angle = random.uniform(0, 2 * math.pi)
+                                r = random.uniform(0.2, radius)  # 최소 거리 설정
+                                x = 0.5 + r * math.cos(angle)
+                                y = 0.5 + r * math.sin(angle)
+                                
+                                # 기존 위치들과의 거리 확인
+                                valid_position = True
+                                for pos in existing_positions:
+                                    if math.sqrt((x - pos[0])**2 + (y - pos[1])**2) < min_distance:
+                                        valid_position = False
+                                        break
+                                
+                                if valid_position:
+                                    existing_positions.append((x, y))
+                                    return x, y
+                            
+                            # 적절한 위치를 찾지 못한 경우 기본값 반환
+                            return 0.5 + radius * 0.7 * math.cos(angle), 0.5 + radius * 0.7 * math.sin(angle)
+
+                        # 감정 단어 정의
+                        emotions = []
+                        existing_positions = []
+                        
+                        # 핵심 단어는 중앙에 배치
+                        emotions.append({
+                            'word': core_word,
+                            'size': 50,
+                            'x': 0.5,
+                            'y': 0.5
+                        })
+                        existing_positions.append((0.5, 0.5))
+
+                        # 관련 단어들은 랜덤 배치
+                        radius = 0.50  # 원의 반지름을 키움
+                        for i, word in enumerate(related_words):
+                            size = 30 - (i * 1.5)  # 글자 크기 차이를 줄임
+                            x, y = get_random_position(radius)
+                            emotions.append({
+                                'word': word,
+                                'size': size,
+                                'x': x,
+                                'y': y
+                            })
+
+                        fig = go.Figure()
+
+                        # # 원형 테두리 그리기
+                        # circle_points = [
+                        #     (0.5 + radius * math.cos(theta), 0.5 + radius * math.sin(theta))
+                        #     for theta in np.linspace(0, 2*math.pi, 100)
+                        # ]
+                        
+                        # fig.add_trace(go.Scatter(
+                        #     x=[p[0] for p in circle_points],
+                        #     y=[p[1] for p in circle_points],
+                        #     mode='lines',
+                        #     line=dict(color=color, width=1),
+                        #     showlegend=False
+                        # ))
+
+                        # 감정 단어들을 텍스트로 표시
+                        for emotion in emotions:
+                            fig.add_trace(go.Scatter(
+                                x=[emotion['x']],
+                                y=[emotion['y']],
+                                mode='text',
+                                text=[emotion['word']],
+                                textfont=dict(
+                                    size=emotion['size'],
+                                    color=color
+                                ),
+                                showlegend=False
+                            ))
+
+                        # 레이아웃 설정
+                        fig.update_layout(
+                            title=dict(
+                                text=f"연관 감정 단어",
+                                font=dict(size=20)
+                            ),
+                            xaxis=dict(
+                                showgrid=False,
+                                zeroline=False,
+                                showticklabels=False,
+                                range=[0, 1]
+                            ),
+                            yaxis=dict(
+                                showgrid=False,
+                                zeroline=False,
+                                showticklabels=False,
+                                range=[0, 1]
+                            ),
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            height=300,
+                            margin=dict(l=20, r=20, t=40, b=20)
+                        )
+
+                        # # 확률 표시 추가
+                        # fig.add_annotation(
+                        #     text=f"{pos_prob:.1f}% {'긍정' if pos_prob > 50 else '부정'}",
+                        #     xref="paper", yref="paper",
+                        #     x=0.5, y=1.05,
+                        #     showarrow=False,
+                        #     font=dict(size=16, color=color),
+                        #     borderpad=4
+                        # )
+
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    # 구분선 추가
+                    st.markdown("---")
+                    
+                    # 하단에 전체 너비로 표시 (col3 내용)
+                    st.subheader("For you..⭐")
+                    # 감성 메시지 표시
+                    sentiment_score = result['probs']['긍정'] * 100
+                    message_2 = get_sentiment_message(sentiment_score)
+
+                    with st.container():
+                        # 먼저 메시지 표시
+                        st.markdown(f"""
+                            <div style="
+                                text-align: center;
+                                padding: 15px;
+                                background-color: #f0f2f6;
+                                border-radius: 10px;
+                                margin-bottom: 20px;
+                                font-family: 'Helvetica Neue', Arial, sans-serif;
+                                font-size: 1.1em;
+                                color: #333;
+                            ">
+                                {message_2}
+                            </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # 그 다음 YouTube 비디오 표시
+                        col1, col2, col3 = st.columns([1,2,1])
+                        with col2:
+                            youtube_url = recommend_youtube_video(result['probs'])
+                            st.video(youtube_url)
+                    
+
+                    
+                    # 히스토리에 추가
+                    add_to_history(
+                        text=text,
+                        result=result,
+                        model_info=selected_model_info
+                    )
+                    update_statistics(result['label'])
+                    
         except Exception as e:
             st.error(f"모델 로딩 중 오류가 발생했습니다: {str(e)}")
             st.info("모델 관리 탭에서 모델 상태를 확인해주세요.")
@@ -1091,7 +1095,7 @@ def main():
                                 if vote_key not in st.session_state.vote_history:
                                     st.session_state.vote_history[vote_key] = None
                                 
-                                # 현재 투표 상태 확인
+                                # 현재 투표 상�� 확인
                                 current_vote = st.session_state.vote_history[vote_key]
                                 
                                 # 투표 버튼 컨테이너
@@ -1132,16 +1136,15 @@ def main():
                     # 대화 내용 다운로드
                     # 대화 내용 다운로드
                     if st.session_state.chat_history:
-                        # CSV 파일을 위한 StringIO 객체 생성
+                        # CSV 파일을 위한 StringIO 객체 생성 (인코딩 추가)
                         output = StringIO()
-                        writer = csv.writer(output)
+                        writer = csv.writer(output, encoding='utf-8-sig')  # UTF-8 with BOM for Excel
                         
                         # CSV 헤더 작성
                         writer.writerow(['Timestamp', 'User Input', 'Bot Response', 'Confidence', 'Vote'])
                         
                         # 대화 내용 작성
                         for i, chat in enumerate(st.session_state.chat_history):
-                            # 투표 결과를 1(UP) 또는 0(DOWN)으로 변환
                             vote = st.session_state.vote_history.get(f'vote_{i}')
                             vote_value = '1' if vote == 'up' else '0' if vote == 'down' else ''
                             
@@ -1149,17 +1152,16 @@ def main():
                                 chat['timestamp'],
                                 chat['user'],
                                 chat['bot'],
-                                # chat['sentiment'],
                                 f"{chat['confidence']:.1%}",
                                 vote_value
                             ])
                         
-                        # 다운로드 버튼
+                        # 다운로드 버튼 (인코딩 정보 추가)
                         st.download_button(
                             label="대화 내용 다운로드 (CSV)",
-                            data=output.getvalue(),
+                            data=output.getvalue().encode('utf-8-sig'),  # 인코딩 추가
                             file_name=f"chat_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                            mime="text/csv"
+                            mime="text/csv",
                         )
 
             except Exception as e:

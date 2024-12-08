@@ -1,12 +1,13 @@
-<<<<<<< HEAD
 scikit-learn
 
-torch
 torchvision
 torchaudio
-pytorch-lightning
 
 transformers
+torch
+tokenizers
+pytorch-lightning
+
 pandas
 numpy
 pyyaml
@@ -27,9 +28,10 @@ streamlit
 seaborn
 plotly
 
+streamlit-chat
+
 slack-sdk
 python-dotenv
-=======
 annotated-types==0.7.0
 anyio==4.6.2.post1
 asttokens==3.0.0
@@ -116,4 +118,3 @@ wcwidth==0.2.13
 websocket-client==1.8.0
 wsproto==1.2.0
 zope.interface==7.2
->>>>>>> 7999927 (Add crawler service and test files)
